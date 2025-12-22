@@ -1,4 +1,4 @@
-# Mechasense - Digital-twin-predictive-maintenance-for-motor-electric
+# Mechasense - Digital twin predictive maintenance for motor electric
 
 **IoT-based Predictive Maintenance for AC Motors**
 
@@ -434,5 +434,5 @@ This project is for educational/demo purposes. Modify as needed for your use cas
 
 ---
 
-**Mechasense** - _Digital-twin-predictive-maintenance-for-motor-electric_ 🔧⚡
+**Mechasense** - _Digital twin predictive maintenance for motor electric_ 🔧⚡
 
