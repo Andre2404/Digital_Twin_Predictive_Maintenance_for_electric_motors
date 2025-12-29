@@ -44,9 +44,11 @@ export function DustPanel({ dustDensity, soilingLossPercent }: DustPanelProps) {
           </p>
         </div>
         
-        {/* Visual gauge */}
+        {/* Visual gauge - Threshold: Normal < 50, Warning 50-100, Critical > 100, Max 200 */}
+        {/* Circumference = 2 * π * 36 ≈ 226.2, untuk 200 max: 1 unit = 1.131 */}
         <div className="relative w-24 h-24">
           <svg className="transform -rotate-90 w-24 h-24">
+            {/* Background circle */}
             <circle
               cx="48"
               cy="48"
@@ -55,6 +57,7 @@ export function DustPanel({ dustDensity, soilingLossPercent }: DustPanelProps) {
               strokeWidth="8"
               fill="none"
             />
+            {/* Main gauge indicator - sesuai dengan nilai aktual */}
             <circle
               cx="48"
               cy="48"
@@ -62,12 +65,18 @@ export function DustPanel({ dustDensity, soilingLossPercent }: DustPanelProps) {
               stroke={dustStatus.level === 'normal' ? '#10b981' : dustStatus.level === 'warning' ? '#f59e0b' : '#ef4444'}
               strokeWidth="8"
               fill="none"
-              strokeDasharray={`${Math.min((dustDensity / 200) * 226, 226)} 226`}
+              strokeDasharray={`${Math.min((dustDensity / 200) * 226.2, 226.2)} 226.2`}
               strokeLinecap="round"
+              className="relative z-10"
             />
           </svg>
           <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-xs text-gray-600">0-200</span>
+            <div className="text-center">
+              <span className="text-xs text-gray-600 block">0-200</span>
+              <span className="text-[10px] text-gray-500 block mt-0.5">
+                <span className="text-status-warning font-medium">50</span> | <span className="text-status-critical font-medium">100</span>
+              </span>
+            </div>
           </div>
         </div>
       </div>

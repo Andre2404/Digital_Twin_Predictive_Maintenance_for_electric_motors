@@ -30,14 +30,15 @@ export type ParameterType =
 export function getStatusColor(value: number, parameterType: ParameterType): StatusResult {
   switch (parameterType) {
     case 'gridVoltage':
-      if (value < 200) {
+      // Normal range: 200-240V (typical Indonesian grid voltage)
+      if (value >= 200 && value <= 240) {
         return {
           level: 'normal',
           label: 'Normal',
           color: 'text-status-normal',
           bgColor: 'bg-status-normal'
         };
-      } else if (value >= 200 && value <= 230) {
+      } else if ((value >= 190 && value < 200) || (value > 240 && value <= 250)) {
         return {
           level: 'warning',
           label: 'Warning',
