@@ -1,64 +1,53 @@
-/**
- * useRealtimeSensorData Hook
- * 
- * Fetches latest sensor data for a motor and polls every 2 seconds for updates
- * Alternative approaches: Server-Sent Events (SSE) or WebSocket for true realtime
- */
+"use client";
 
-'use client';
+import { getDatabase, ref, onValue, off } from "firebase/database";
+import { app } from "@/lib/firebaseClient";
+import { useState, useEffect } from "react";
 
-import { useState, useEffect, useCallback } from 'react';
-
+/* =======================
+   INTERFACE
+   ======================= */
 interface Motor {
-  id: string;
   name: string;
   location: string;
   ratedPower: number;
-  ratedCurrent: number;
-  ratedVoltage: number;
 }
 
 interface SensorReading {
-  id: string;
-  motorId: string;
-  timestamp: Date | string;
-  gridVoltage: number;
-  motorCurrent: number;
-  powerConsumption: number;
-  powerFactor: number;
-  dailyEnergyKwh: number;
-  gridFrequency: number;
-  vibrationRms: number;
-  faultFrequency?: number | null;
-  rotorUnbalanceScore: number;
-  bearingHealthScore: number;
-  motorSurfaceTemp: number;
-  thermalAnomalyIndex?: number | null;
-  panelTemp?: number | null;
-  bearingTemp: number;
-  dustDensity: number;
-  soilingLossPercent: number;
+  timestamp: number;
+
+  // Electrical
+  gridVoltage?: number;
+  motorCurrent?: number;
+  power?: number;
+  powerFactor?: number;
+  gridFrequency?: number;
+  dailyEnergyKwh?: number;
+
+  // Mechanical
+  vibrationRms?: number;
+  faultFrequency?: number;
+  rotorUnbalanceScore?: number;
+  bearingHealthScore?: number;
+
+  // Thermal
+  motorSurfaceTemp?: number;
+  bearingTemp?: number;
+
+  // Environmental
+  dustDensity?: number;
+  soilingLossPercent?: number;
 }
 
 interface Alert {
-  id: string;
-  timestamp: Date | string;
-  severity: 'WARNING' | 'CRITICAL';
-  parameter: string;
-  value: number;
+  severity: string;
   message: string;
-  status: 'OPEN' | 'CLOSED' | 'ACKNOWLEDGED';
+  status: string;
 }
 
-interface HealthAnalysis {
-  id: string;
-  motorId: string;
-  timestamp: Date | string;
+interface Health {
   healthScoreMl: number;
   healthCategory: string;
-  expertDiagnosis?: string | null;
-  expertRecommendation?: string | null;
-  rawRulesMatched?: string | null;
 }
 
 interface RealtimeData {
@@ -66,65 +55,99 @@ interface RealtimeData {
   latestReading: SensorReading | null;
   recentReadings: SensorReading[];
   activeAlerts: Alert[];
-  latestHealth: HealthAnalysis | null;
+  latestHealth: Health | null;
   timestamp: string;
 }
 
-interface UseRealtimeSensorDataReturn {
-  data: RealtimeData | null;
-  isLoading: boolean;
-  error: string | null;
-  isConnected: boolean;
-  refresh: () => Promise<void>;
-}
-
-export function useRealtimeSensorData(motorId: string): UseRealtimeSensorDataReturn {
+/* =======================
+   CUSTOM HOOK
+   ======================= */
+export function useRealtimeSensorData(motorId: string) {
   const [data, setData] = useState<RealtimeData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
-  
-  const fetchData = useCallback(async () => {
-    try {
-      const response = await fetch(`/api/latest?motorId=${motorId}`);
-      
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
-      }
-      
-      const result = await response.json();
-      setData(result);
+
+  useEffect(() => {
+    if (!motorId) return;
+
+    const db = getDatabase(app);
+
+    const motorRef = ref(db, `motors/${motorId}`);
+    const realtimeRef = ref(db, `realtime/${motorId}`);
+    const alertRef = ref(db, `alerts/${motorId}`);
+    const healthRef = ref(db, `health/${motorId}`);
+
+    let motorData: Motor | null = null;
+    let latestReading: SensorReading | null = null;
+    let alerts: Alert[] = [];
+    let healthData: Health | null = null;
+
+    /* ===== MOTOR INFO ===== */
+    const unsubMotor = onValue(motorRef, (snap) => {
+      motorData = snap.val();
+      updateState();
+    });
+
+    /* ===== REALTIME SENSOR ===== */
+    const unsubRealtime = onValue(realtimeRef, (snap) => {
+      latestReading = snap.val();
+      updateState();
+    });
+
+    /* ===== ALERT ===== */
+    const unsubAlert = onValue(alertRef, (snap) => {
+      const alertVal = snap.val();
+      alerts = alertVal ? [alertVal] : [];
+      updateState();
+    });
+
+    /* ===== HEALTH ===== */
+    const unsubHealth = onValue(healthRef, (snap) => {
+      const h = snap.val();
+      healthData = h
+        ? {
+            healthScoreMl: h.healthScore,
+            healthCategory: h.category,
+          }
+        : null;
+      updateState();
+    });
+
+    /* ===== GABUNG DATA ===== */
+    function updateState() {
+      setData({
+        motor: motorData,
+        latestReading,
+        recentReadings: latestReading ? [latestReading] : [],
+        activeAlerts: alerts,
+        latestHealth: healthData,
+        timestamp: new Date().toISOString(),
+      });
+
       setIsConnected(true);
-      setError(null);
-      setIsLoading(false);
-    } catch (err) {
-      console.error('Error fetching sensor data:', err);
-      setError(err instanceof Error ? err.message : 'Unknown error');
-      setIsConnected(false);
       setIsLoading(false);
     }
+
+    /* ===== CLEANUP (INI PENTING) ===== */
+    return () => {
+      off(motorRef);
+      off(realtimeRef);
+      off(alertRef);
+      off(healthRef);
+
+      unsubMotor();
+      unsubRealtime();
+      unsubAlert();
+      unsubHealth();
+    };
   }, [motorId]);
-  
-  // Initial fetch
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-  
-  // Polling every 2 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fetchData();
-    }, 2000);
-    
-    return () => clearInterval(interval);
-  }, [fetchData]);
-  
+
   return {
     data,
     isLoading,
     error,
     isConnected,
-    refresh: fetchData,
+    refresh: async () => {},
   };
 }
-
