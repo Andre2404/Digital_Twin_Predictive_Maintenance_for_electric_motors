@@ -176,19 +176,25 @@ export default function AnalyticsPage() {
           <div className="card text-center">
             <p className="text-sm text-gray-600 mb-1">Avg Voltage</p>
             <p className="text-2xl font-bold text-primary">
-              {(data.reduce((sum, d) => sum + d.gridVoltage, 0) / data.length || 0).toFixed(1)} V
+              {data.length > 0 
+                ? (data.reduce((sum, d) => sum + d.gridVoltage, 0) / data.length).toFixed(1)
+                : '0.0'} V
             </p>
           </div>
           <div className="card text-center">
             <p className="text-sm text-gray-600 mb-1">Avg Current</p>
             <p className="text-2xl font-bold text-primary">
-              {(data.reduce((sum, d) => sum + d.motorCurrent, 0) / data.length || 0).toFixed(2)} A
+              {data.length > 0
+                ? (data.reduce((sum, d) => sum + d.motorCurrent, 0) / data.length).toFixed(2)
+                : '0.00'} A
             </p>
           </div>
           <div className="card text-center">
             <p className="text-sm text-gray-600 mb-1">Max Temp</p>
             <p className="text-2xl font-bold text-status-warning">
-              {Math.max(...data.map(d => d.motorSurfaceTemp), 0).toFixed(1)} °C
+              {data.length > 0
+                ? Math.max(...data.map(d => d.motorSurfaceTemp)).toFixed(1)
+                : '0.0'} °C
             </p>
           </div>
           <div className="card text-center">

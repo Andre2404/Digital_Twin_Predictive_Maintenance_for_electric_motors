@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { MechasenseLogo } from './Logo';
+import { useRealtimeSensorData } from '@/hooks/useRealtimeSensorData';
 
 interface NavItem {
   label: string;
@@ -16,8 +17,12 @@ const navItems: NavItem[] = [
   { label: 'Settings', href: '/settings' },
 ];
 
+// TODO: In production, allow user to select motor
+const DEFAULT_MOTOR_ID = 'motor_1';
+
 export function Navbar() {
   const pathname = usePathname();
+  const { isConnected } = useRealtimeSensorData(DEFAULT_MOTOR_ID);
   
   return (
     <nav className="sticky top-0 z-50 bg-primary shadow-lg">
@@ -49,10 +54,12 @@ export function Navbar() {
               </Link>
             ))}
             
-            {/* ESP Status Indicator */}
+            {/* ESP Status Indicator - Real-time dari Firebase */}
             <div className="flex items-center gap-2 ml-4 px-3 py-1 bg-secondary rounded-full">
-              <div className="status-dot bg-status-normal animate-pulse"></div>
-              <span className="text-xs text-white font-medium">ESP Online</span>
+              <div className={`status-dot ${isConnected ? 'bg-status-normal animate-pulse' : 'bg-gray-400'}`}></div>
+              <span className="text-xs text-white font-medium">
+                ESP: {isConnected ? 'Online' : 'Offline'}
+              </span>
             </div>
           </div>
         </div>

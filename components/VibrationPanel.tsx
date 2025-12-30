@@ -57,11 +57,23 @@ export function VibrationPanel({
             <span className="text-sm text-gray-500">mm/s</span>
           </div>
         </div>
-        <div className="w-full bg-gray-200 rounded-full h-2">
+        {/* Progress bar dengan max 10 mm/s - perhitungan: (vibrationRms / 10) * 100% */}
+        {/* Threshold: Normal < 2.8 (28%), Warning 2.8-4.5 (17%), Critical > 4.5 (55%) */}
+        <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden relative">
+          {/* Progress indicator - sesuai dengan nilai aktual */}
           <div 
             className={`h-full ${vibrationStatus.bgColor} transition-all duration-500`}
             style={{ width: `${Math.min((vibrationRms / 10) * 100, 100)}%` }}
           ></div>
+          {/* Threshold markers sebagai garis vertikal */}
+          <div className="absolute top-0 bottom-0 left-[28%] w-0.5 bg-status-warning opacity-50"></div>
+          <div className="absolute top-0 bottom-0 left-[45%] w-0.5 bg-status-critical opacity-50"></div>
+        </div>
+        <div className="flex justify-between text-xs text-gray-500 mt-1">
+          <span>0</span>
+          <span className="text-status-warning font-medium">2.8</span>
+          <span className="text-status-critical font-medium">4.5</span>
+          <span>10 mm/s</span>
         </div>
         {faultFrequency && (
           <p className="text-xs text-gray-500 mt-1">

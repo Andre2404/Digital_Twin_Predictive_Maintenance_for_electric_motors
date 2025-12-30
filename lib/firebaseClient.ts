@@ -1,5 +1,5 @@
 // lib/firebaseClient.ts
-import { initializeApp } from "firebase/app";
+import { initializeApp, getApps, FirebaseApp } from "firebase/app";
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -11,4 +11,24 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-export const app = initializeApp(firebaseConfig);
+// Check if Firebase is already initialized
+let app: FirebaseApp;
+
+if (getApps().length === 0) {
+  // Validate required config
+  if (!firebaseConfig.apiKey || !firebaseConfig.projectId || !firebaseConfig.databaseURL) {
+    console.warn('Firebase configuration is incomplete. Some features may not work.');
+    // Create a minimal config for development
+    app = initializeApp({
+      apiKey: firebaseConfig.apiKey || 'demo-key',
+      projectId: firebaseConfig.projectId || 'demo-project',
+      databaseURL: firebaseConfig.databaseURL || 'https://demo-project-default-rtdb.firebaseio.com',
+    });
+  } else {
+    app = initializeApp(firebaseConfig);
+  }
+} else {
+  app = getApps()[0];
+}
+
+export { app };
