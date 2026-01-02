@@ -9,518 +9,288 @@
 #include <FirebaseESP32.h>
 
 /* =======================
-   WiFi Credentials
+   WIFI CONFIG
    ======================= */
-#define WIFI_SSID "WIFIPARAREL"
-#define WIFI_PASSWORD "pararel123"
+#define WIFI_SSID     " "
+#define WIFI_PASSWORD " "
 
 /* =======================
-   Firebase Configuration
+   FIREBASE CONFIG
    ======================= */
-#define FIREBASE_HOST "test-mode-62bda-default-rtdb.firebaseio.com"  // TANPA https:// dan /
+// PASTIKAN: Tanpa "https://" dan tanpa "/" di akhir
+#define FIREBASE_HOST "test-mode-62bda-default-rtdb.firebaseio.com"
 #define FIREBASE_AUTH "UK4P0trCSAcKN1iEMRNplvkYmkom3m6aHWba48DU"
 
-/* =======================
-   Firebase Objects
-   ======================= */
 FirebaseData fbdo;
-FirebaseAuth auth;
+FirebaseAuth auth;   
 FirebaseConfig config;
-bool firebaseReady = false;
 
 /* =======================
-   PZEM-004T
+   SENSORS PINOUT & OBJECTS
    ======================= */
 #define RXD2 16
 #define TXD2 17
 HardwareSerial pzemSerial(2);
 PZEM004Tv30 pzem(pzemSerial, RXD2, TXD2);
 
-/* =======================
-   I2C Sensors
-   ======================= */
 MPU6050 mpu;
-Adafruit_MLX90614 mlx = Adafruit_MLX90614();
+Adafruit_MLX90614 mlx;
 
-/* =======================
-   DS18B20
-   ======================= */
 #define ONE_WIRE_BUS 14
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature ds18b20(&oneWire);
 
-/* =======================
-   Dust Sensor GP2Y
-   ======================= */
 #define DUST_PIN 34
 #define LED_PIN  4
-#define OFFSET_V 0.33
 
 /* =======================
-   EDGE AGGREGATION CONFIG
+   VARIABLES
    ======================= */
-const uint32_t READ_INTERVAL_MS = 200;    // baca sensor tiap 200ms (aggregation input)
-const uint32_t SEND_INTERVAL_MS = 2000;   // kirim ke Firebase tiap 2 detik (aggregation output)
+float dustOffset = 0.25;
+float axOffset = 0, ayOffset = 0, azOffset = 0;
+#define SAMPLE_COUNT 500
+
+unsigned long lastMillis = 0;
+const unsigned long interval = 2000;
 
 /* =======================
-   MPU Stabilization
+   CALIBRATION FUNCTIONS
    ======================= */
-float axOff = 0, ayOff = 0, azOff = 0;     // baseline (g)
-bool  mpuCalibrated = false;
-
-float vibEma = 0.0f;                       // smoothing hasil vibration
-const float VIB_EMA_ALPHA = 0.10f;         // makin kecil makin halus (0.05-0.2)
-
-/* =======================
-   Aggregator State
-   ======================= */
-struct Agg {
-  uint32_t n = 0;
-
-  // sums (mean)
-  double vSum=0, iSum=0, pSum=0, fSum=0, pfSum=0;
-  double motorTSum=0, ambTSum=0;
-  double bearingTSum=0, deltaTSum=0;
-  double dustSum=0, soilSum=0;
-  double vibSum=0;
-
-  // peaks (max)
-  float vibPeak = 0;
-  float motorTPeak = -999;
-  float bearingTPeak = -999;
-  float dustPeak = 0;
-
-  // last (for cumulative)
-  float energyLast = 0;
-
-  // flags (OR)
-  bool hotspotAny = false;
-
-  void reset() {
-    n = 0;
-    vSum=iSum=pSum=fSum=pfSum=0;
-    motorTSum=ambTSum=0;
-    bearingTSum=deltaTSum=0;
-    dustSum=soilSum=0;
-    vibSum=0;
-
-    vibPeak = 0;
-    motorTPeak = -999;
-    bearingTPeak = -999;
-    dustPeak = 0;
-
-    energyLast = 0;
-    hotspotAny = false;
-  }
-};
-Agg agg;
-
-/* =======================
-   Timing for dual-rate
-   ======================= */
-uint32_t lastReadMs = 0;
-uint32_t lastSendMs = 0;
-
-/* =======================
-   Time helper
-   ======================= */
-unsigned long getUnixTimestamp() {
-  time_t now;
-  time(&now);
-  return (unsigned long) now;
-}
-
-/* =======================
-   MPU Calibration
-   ======================= */
-void calibrateMPU6050(uint16_t samples = 500) {
-  // Ideal: motor OFF dan sensor diam
-  double sx=0, sy=0, sz=0;
-
-  for (uint16_t i=0; i<samples; i++) {
+void calibrateMPU6050() {
+  Serial.println("Calibrating MPU6050...");
+  long axSum = 0, aySum = 0, azSum = 0;
+  for (int i = 0; i < 500; i++) {
     int16_t ax, ay, az;
     mpu.getAcceleration(&ax, &ay, &az);
-
-    float x = ax / 16384.0f;
-    float y = ay / 16384.0f;
-    float z = az / 16384.0f;
-
-    sx += x; sy += y; sz += z;
+    axSum += ax; aySum += ay; azSum += az;
     delay(5);
   }
-
-  axOff = (float)(sx / samples);
-  ayOff = (float)(sy / samples);
-  azOff = (float)(sz / samples);
-
-  mpuCalibrated = true;
-
-  Serial.println("✓ MPU Calibrated (baseline g):");
-  Serial.printf("  axOff=%.4f, ayOff=%.4f, azOff=%.4f\n", axOff, ayOff, azOff);
+  axOffset = axSum / 500.0f;
+  ayOffset = aySum / 500.0f;
+  azOffset = (azSum / 500.0f) - 16384.0f;
+  Serial.println("MPU6050 Calibrated");
 }
 
-/* =======================
-   Read Vibration (stable index)
-   NOTE: Ini tetap pakai konsep kamu.
-         Angka besar (mis 9xxx) dianggap sebagai "index".
-   ======================= */
-float readVibrationRmsMmS(uint16_t sampleCount = 200, uint16_t delayUs = 1000) {
-  double sumSq = 0;
-
-  for (uint16_t i=0; i<sampleCount; i++) {
-    int16_t ax, ay, az;
-    mpu.getAcceleration(&ax, &ay, &az);
-
-    float x = ax / 16384.0f;
-    float y = ay / 16384.0f;
-    float z = az / 16384.0f;
-
-    // baseline compensation
-    if (mpuCalibrated) {
-      x -= axOff;
-      y -= ayOff;
-      z -= azOff;
-    }
-
-    float mag = sqrtf(x*x + y*y + z*z);
-    float res = fabsf(mag - 1.0f);
-
-    sumSq += (double)res * (double)res;
-    delayMicroseconds(delayUs);
-  }
-
-  float rms_g = sqrtf((float)(sumSq / sampleCount));
-  float rms_mm_s = rms_g * 9.81f * 1000.0f;
-
-  // EMA smoothing biar stabil
-  vibEma = (VIB_EMA_ALPHA * rms_mm_s) + ((1.0f - VIB_EMA_ALPHA) * vibEma);
-  return vibEma;
-}
-
-void setup() {
-  Serial.begin(115200);
-  delay(1000);
-
-  /* =======================
-     Initialize Sensors
-     ======================= */
-  pzemSerial.begin(9600, SERIAL_8N1, RXD2, TXD2);
-
-  Wire.begin(21, 22);
-  mpu.initialize();
-
-  // Kalibrasi MPU (ideal motor OFF / kondisi paling stabil)
-  calibrateMPU6050(500);
-
-  mlx.begin();
-  ds18b20.begin();
-
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, HIGH);
-  analogSetPinAttenuation(DUST_PIN, ADC_11db);
-
-  /* =======================
-     Connect to WiFi
-     ======================= */
-  Serial.println("Connecting to WiFi...");
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  int wifiTimeout = 0;
-  while (WiFi.status() != WL_CONNECTED && wifiTimeout < 20) {
-    delay(500);
-    Serial.print(".");
-    wifiTimeout++;
-  }
-
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println();
-    Serial.println("WiFi Connected!");
-    Serial.print("IP Address: ");
-    Serial.println(WiFi.localIP());
-    Serial.print("RSSI: ");
-    Serial.println(WiFi.RSSI());
-  } else {
-    Serial.println("\nWiFi Connection Failed!");
-    while (1) delay(1000);
-  }
-
-  /* =======================
-     Time Sync
-     ======================= */
-  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-  Serial.print("Syncing time");
-  time_t now;
-  while ((now = time(nullptr)) < 100000) {
-    Serial.print(".");
-    delay(500);
-  }
-  Serial.println("\n✓ Time synced");
-
-  /* =======================
-     Initialize Firebase
-     ======================= */
-  Serial.println("\nInitializing Firebase...");
-  config.host = FIREBASE_HOST;
-  config.signer.tokens.legacy_token = FIREBASE_AUTH;
-  config.timeout.serverResponse = 10000;
-
-  fbdo.setBSSLBufferSize(4096, 1024);
-  Firebase.begin(&config, &auth);
-  Firebase.reconnectWiFi(true);
-
-  delay(2000);
-
-  Serial.println("Testing Firebase connection...");
-  if (Firebase.ready()) {
-    firebaseReady = true;
-    Serial.println("✓ Firebase Ready!");
-
-    FirebaseJson testJson;
-    testJson.set("test", "connected");
-    testJson.set("timestamp", millis() / 1000);
-
-    if (Firebase.setJSON(fbdo, "/test_connection", testJson)) {
-      Serial.println("✓ Firebase Test Write Success!");
-    } else {
-      Serial.println("✗ Firebase Test Write Failed: " + fbdo.errorReason());
-    }
-  } else {
-    Serial.println("✗ Firebase Not Ready!");
-    Serial.println("Check your host and auth token");
-  }
-
-  Serial.println("\n=== 5 SENSOR MONITORING SYSTEM READY ===");
-  Serial.println("=========================================");
-}
-
-void loop() {
-  uint32_t nowMs = millis();
-
-  /* =======================
-     READ SENSOR FAST (aggregation input)
-     ======================= */
-  if (nowMs - lastReadMs >= READ_INTERVAL_MS) {
-    lastReadMs = nowMs;
-
-    // ---------- PZEM ----------
-    float voltage = pzem.voltage();
-    float current = pzem.current();
-    float power   = pzem.power();
-    float energy  = pzem.energy();
-    float freq    = pzem.frequency();
-    float pf      = pzem.pf();
-
-    if (isnan(voltage)) voltage = 0;
-    if (isnan(current)) current = 0;
-    if (isnan(power))   power   = 0;
-    if (isnan(freq))    freq    = 0;
-    if (isnan(pf))      pf      = 0;
-    if (isnan(energy))  energy  = agg.energyLast;
-
-    // ---------- MLX90614 ----------
-    float tempAmbient = mlx.readAmbientTempC();
-    float tempMotor   = mlx.readObjectTempC();
-
-    // ---------- DS18B20 ----------
-    ds18b20.requestTemperatures();
-    float tempBearing = ds18b20.getTempCByIndex(0);
-    float deltaTemp   = tempBearing - tempAmbient;
-
-    // ---------- Dust ----------
+void calibrateDustSensor() {
+  Serial.println("Calibrating Dust Sensor...");
+  float sum = 0;
+  for (int i = 0; i < 100; i++) {
     digitalWrite(LED_PIN, LOW);
     delayMicroseconds(280);
     int adc = analogRead(DUST_PIN);
     delayMicroseconds(40);
     digitalWrite(LED_PIN, HIGH);
-    delayMicroseconds(9680);
+    sum += adc * (3.3f / 4095.0f);
+    delay(10);
+  }
+  dustOffset = sum / 100.0f;
+  Serial.print("Dust Offset: "); Serial.println(dustOffset, 3);
+}
 
-    float vDust = adc * (3.3 / 4095.0) * 3.0;
-    float dust = (vDust - OFFSET_V) * 1000.0;
-    if (dust < 0) dust = 0;
+/* =======================
+   SETUP
+   ======================= */
+void setup() {
+  Serial.begin(115200);
+  
+  pzemSerial.begin(9600, SERIAL_8N1, RXD2, TXD2);
+  Wire.begin(21, 22);
+  
+  mpu.initialize();
+  mlx.begin();
+  ds18b20.begin();
 
-    float soilingLoss = min((dust / 300.0) * 100.0, 100.0);
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, HIGH);
+  analogReadResolution(12);
+  analogSetPinAttenuation(DUST_PIN, ADC_11db);
 
-    // ---------- Vibration (stable index) ----------
-    float rms_mm_s = readVibrationRmsMmS(200, 1000);
+  calibrateMPU6050();
+  calibrateDustSensor();
 
-    // hotspot flag
-    bool hotspot = (tempMotor - tempAmbient) > 15;
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  Serial.print("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500); Serial.print(".");
+  }
+  Serial.println("\nWiFi Connected");
 
-    // ---------- Aggregate into 2s window ----------
-    agg.n++;
+  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+  
+  config.host = FIREBASE_HOST;
+  config.signer.tokens.legacy_token = FIREBASE_AUTH;
+  Firebase.begin(&config, &auth);
+  Firebase.reconnectWiFi(true);
+}
 
-    agg.vSum  += voltage;
-    agg.iSum  += current;
-    agg.pSum  += power;
-    agg.fSum  += freq;
-    agg.pfSum += pf;
+/* =======================
+   LOOP
+   ======================= */
+void loop() {
+  if (millis() - lastMillis < interval) return;
+  lastMillis = millis();
 
-    agg.motorTSum += tempMotor;
-    agg.ambTSum   += tempAmbient;
+  // --- ELECTRICAL ---
+  float voltage = pzem.voltage();
+  float current = pzem.current();
+  float power   = pzem.power();
+  float energy  = pzem.energy();
+  float freq    = pzem.frequency();
+  float pf      = pzem.pf();
 
-    agg.bearingTSum += tempBearing;
-    agg.deltaTSum   += deltaTemp;
+  if (isnan(voltage)) voltage = 0.0f;
+  if (isnan(current)) current = 0.0f;
+  if (isnan(power))   power = 0.0f;
+  if (isnan(pf))      pf = 0.0f;
 
-    agg.dustSum += dust;
-    agg.soilSum += soilingLoss;
+  float apparentPower = voltage * current;
+  float loadIndex = (apparentPower > 0) ? (power / apparentPower) : 0.0f;
+  float currentFreqRatio = (freq > 0) ? (current / freq) : 0.0f;
 
-    agg.vibSum  += rms_mm_s;
+  // --- TEMPERATURE ---
+  float ambientTemp = mlx.readAmbientTempC();
+  float motorTemp   = mlx.readObjectTempC();
+  ds18b20.requestTemperatures();
+  float bearingTemp = ds18b20.getTempCByIndex(0);
 
-    // peaks
-    if (rms_mm_s > agg.vibPeak) agg.vibPeak = rms_mm_s;
-    if (tempMotor > agg.motorTPeak) agg.motorTPeak = tempMotor;
-    if (tempBearing > agg.bearingTPeak) agg.bearingTPeak = tempBearing;
-    if (dust > agg.dustPeak) agg.dustPeak = dust;
+  float deltaTemp = bearingTemp - ambientTemp;
+  float tempGradient = motorTemp - ambientTemp;
+  float bearingMotorTempDiff = bearingTemp - motorTemp;
+  bool hotspot = tempGradient > 15.0f;
 
-    agg.energyLast = energy;
-    agg.hotspotAny = agg.hotspotAny || hotspot;
+  // --- DUST ---
+  digitalWrite(LED_PIN, LOW);
+  delayMicroseconds(280);
+  int adcDust = analogRead(DUST_PIN);
+  delayMicroseconds(40);
+  digitalWrite(LED_PIN, HIGH);
+
+  float vDust = adcDust * (3.3f / 4095.0f);
+  float dust = (vDust - dustOffset) * 1000.0f;
+  if (dust < 0) dust = 0.0f;
+  float soilingLoss = min((dust / 300.0f) * 100.0f, 100.0f);
+
+  // --- VIBRATION ---
+  float sumSq = 0, peak = 0;
+  for (int i = 0; i < SAMPLE_COUNT; i++) {
+    int16_t ax, ay, az;
+    mpu.getAcceleration(&ax, &ay, &az);
+    float x = (ax - axOffset) / 16384.0f;
+    float y = (ay - ayOffset) / 16384.0f;
+    float z = (az - azOffset) / 16384.0f;
+    float res = abs(sqrt(x*x + y*y + z*z) - 1.0f);
+    sumSq += res * res;
+    if (res > peak) peak = res;
+    delayMicroseconds(1000); 
   }
 
-  /* =======================
-     SEND TO FIREBASE EACH 2s (aggregation output)
-     ======================= */
-  if (nowMs - lastSendMs >= SEND_INTERVAL_MS) {
-    lastSendMs = nowMs;
+  float rms_g = sqrt(sumSq / SAMPLE_COUNT);
+  float rms_mm_s = rms_g * 9.81f * 1000.0f;
+  float crestFactor = (rms_g > 0) ? (peak / rms_g) : 0.0f;
+  float unbalance = min((rms_mm_s / 6.0f) * 100.0f, 100.0f);
+  float bearingHealth = 100.0f - unbalance;
 
-    if (agg.n == 0) return;
+  // --- HEALTH INDEX CALCULATION ---
+  // Perbaikan max(float, float) dengan suffix 'f'
+  float healthIndex = 100.0f 
+                    - (0.35f * unbalance) 
+                    - (0.30f * max(tempGradient, 0.0f)) 
+                    - (0.20f * max((1.0f - pf) * 100.0f, 0.0f)) 
+                    - (0.15f * soilingLoss);
+  healthIndex = constrain(healthIndex, 0.0f, 100.0f);
 
-    // mean values for this 2s window
-    float voltage = (float)(agg.vSum / agg.n);
-    float current = (float)(agg.iSum / agg.n);
-    float power   = (float)(agg.pSum / agg.n);
-    float energy  = (float)(agg.energyLast);
-    float freq    = (float)(agg.fSum / agg.n);
-    float pf      = (float)(agg.pfSum / agg.n);
+  // --- SEND TO FIREBASE ---
+  if (Firebase.ready()) {
+    FirebaseJson json;
+    json.clear(); // Sangat penting untuk mencegah error parsing
 
-    float tempMotor   = (float)(agg.motorTSum / agg.n);
-    float tempAmbient = (float)(agg.ambTSum / agg.n);
-    bool  hotspot     = agg.hotspotAny;
+    json.set("voltage", voltage);
+    json.set("current", current);
+    json.set("power", power);
+    json.set("energy", energy);
+    json.set("frequency", freq);
+    json.set("pf", pf);
+    json.set("apparent_power", apparentPower);
+    json.set("load_index", loadIndex);
+    json.set("current_freq_ratio", currentFreqRatio);
 
-    float tempBearing = (float)(agg.bearingTSum / agg.n);
-    float deltaTemp   = (float)(agg.deltaTSum / agg.n);
+    json.set("motor_temp", motorTemp);
+    json.set("ambient_temp", ambientTemp);
+    json.set("bearing_temp", bearingTemp);
+    json.set("delta_temp", deltaTemp);
+    json.set("temp_gradient", tempGradient);
+    json.set("bearing_motor_temp_diff", bearingMotorTempDiff);
+    json.set("hotspot", hotspot);
 
-    float dust        = (float)(agg.dustSum / agg.n);
-    float soilingLoss = (float)(agg.soilSum / agg.n);
+    json.set("dust", dust);
+    json.set("soiling_loss", soilingLoss);
 
-    float rms_mm_s    = (float)(agg.vibSum / agg.n);
+    json.set("vibration_rms_mm_s", rms_mm_s);
+    json.set("vibration_peak_g", peak);
+    json.set("crest_factor", crestFactor);
+    json.set("unbalance", unbalance);
 
-    // ALERT logic (pakai mean agar stabil)
-    String voltageAlert = (voltage < 200) ? "GREEN" :
-                          (voltage <= 230) ? "YELLOW" : "RED";
+    json.set("bearing_health", bearingHealth);
+    json.set("health_index", healthIndex);
+    
+    // Gunakan explicit cast ke uint32_t agar JSON valid
+    json.set("timestamp", (uint32_t)time(nullptr));
 
-    String pfAlert = (pf > 0.85) ? "GREEN" :
-                     (pf >= 0.7) ? "YELLOW" : "RED";
-
-    String tempAlert = (tempMotor < 70) ? "GREEN" :
-                       (tempMotor <= 85) ? "YELLOW" : "RED";
-
-    String dustAlert = (dust < 50) ? "GREEN" :
-                       (dust <= 100) ? "YELLOW" : "RED";
-
-    // NOTE: threshold kamu tetap, tapi rms_mm_s kamu itu "index".
-    // Kalau mau threshold sesuai index kamu, tinggal ganti angka ini nanti.
-    String vibAlert = (rms_mm_s < 2.8) ? "GREEN" :
-                      (rms_mm_s <= 4.5) ? "YELLOW" : "RED";
-
-    float unbalance = min((rms_mm_s / 6.0) * 100.0, 100.0);
-    float bearingHealth = 100.0 - unbalance;
-
-    /* =======================
-       Serial Output (tiap 2 detik)
-       ======================= */
-    Serial.println("{");
-    Serial.printf("\"voltage\": %.1f,\n", voltage);
-    Serial.printf("\"current\": %.2f,\n", current);
-    Serial.printf("\"power\": %.1f,\n", power);
-    Serial.printf("\"energy\": %.2f,\n", energy);
-    Serial.printf("\"frequency\": %.2f,\n", freq);
-    Serial.printf("\"pf\": %.2f,\n", pf);
-    Serial.printf("\"voltage_alert\": \"%s\",\n", voltageAlert.c_str());
-    Serial.printf("\"pf_alert\": \"%s\",\n", pfAlert.c_str());
-
-    Serial.printf("\"motor_temp\": %.2f,\n", tempMotor);
-    Serial.printf("\"ambient_temp\": %.2f,\n", tempAmbient);
-    Serial.printf("\"temp_alert\": \"%s\",\n", tempAlert.c_str());
-    Serial.printf("\"hotspot\": %s,\n", hotspot ? "true" : "false");
-
-    Serial.printf("\"bearing_temp\": %.2f,\n", tempBearing);
-    Serial.printf("\"delta_temp\": %.2f,\n", deltaTemp);
-
-    Serial.printf("\"dust\": %.1f,\n", dust);
-    Serial.printf("\"dust_alert\": \"%s\",\n", dustAlert.c_str());
-    Serial.printf("\"soiling_loss\": %.1f,\n", soilingLoss);
-
-    Serial.printf("\"vibration_rms_mm_s\": %.2f,\n", rms_mm_s);
-    Serial.printf("\"vibration_alert\": \"%s\",\n", vibAlert.c_str());
-    Serial.printf("\"unbalance\": %.1f,\n", unbalance);
-    Serial.printf("\"bearing_health\": %.1f\n", bearingHealth);
-    Serial.println("}");
-    Serial.println("========================================");
-
-    /* =======================
-       Send to Firebase (tiap 2 detik)
-       ======================= */
-    if (firebaseReady) {
-      FirebaseJson json;
-
-      // Electrical Data
-      json.set("voltage", voltage);
-      json.set("current", current);
-      json.set("power", power);
-      json.set("energy", energy);
-      json.set("frequency", freq);
-      json.set("pf", pf);
-      json.set("voltage_alert", voltageAlert.c_str());
-      json.set("pf_alert", pfAlert.c_str());
-
-      // Temperature Data
-      json.set("motor_temp", tempMotor);
-      json.set("ambient_temp", tempAmbient);
-      json.set("temp_alert", tempAlert.c_str());
-      json.set("hotspot", hotspot);
-
-      // Bearing Data
-      json.set("bearing_temp", tempBearing);
-      json.set("delta_temp", deltaTemp);
-
-      // Dust Data
-      json.set("dust", dust);
-      json.set("dust_alert", dustAlert.c_str());
-      json.set("soiling_loss", soilingLoss);
-
-      // Vibration Data
-      json.set("vibration_rms_mm_s", rms_mm_s);
-      json.set("vibration_alert", vibAlert.c_str());
-      json.set("unbalance", unbalance);
-      json.set("bearing_health", bearingHealth);
-
-      // Timestamp
-      unsigned long timestamp = getUnixTimestamp();
-      json.set("timestamp", timestamp);
-
-      // Paths
-      String latestPath  = "/sensor_data/latest";
-      String historyPath = "/sensor_data/history/" + String(timestamp);
-
-      bool latestOK  = Firebase.setJSON(fbdo, latestPath, json);
-      bool historyOK = Firebase.setJSON(fbdo, historyPath, json);
-
-      if (latestOK) Serial.println("✓ Latest data updated");
-      else Serial.println("✗ Latest update failed: " + fbdo.errorReason());
-
-      if (historyOK) Serial.println("✓ History data appended");
-      else Serial.println("✗ History write failed: " + fbdo.errorReason());
-
-      if (fbdo.httpCode() == 401) {
-        Serial.println("Reconnecting to Firebase...");
-        Firebase.begin(&config, &auth);
-        delay(1000);
-      }
+    // Kirim data
+    if (Firebase.setJSON(fbdo, "/sensor_data/latest", json)) {
+      Serial.println("✓ Success: Latest data updated");
     } else {
-      Serial.println("Firebase not ready, skipping upload");
+      Serial.print("X Failed SetJSON: "); Serial.println(fbdo.errorReason());
     }
 
-    // reset aggregator for next 2s window
-    agg.reset();
+    if (Firebase.pushJSON(fbdo, "/sensor_data/history", json)) {
+      Serial.println("✓ Success: History pushed");
+    } else {
+      Serial.print("X Failed PushJSON: "); Serial.println(fbdo.errorReason());
+    }
+  } else {
+    Serial.println("Firebase not ready...");
   }
+    // --- SERIAL MONITOR OUTPUT (MATCH JSON) ---
+  Serial.println("\n================ SENSOR DATA ================");
+
+  Serial.println("\n--- ELECTRICAL ---");
+  Serial.printf("voltage               : %.2f V\n", voltage);
+  Serial.printf("current               : %.2f A\n", current);
+  Serial.printf("power                 : %.2f W\n", power);
+  Serial.printf("energy                : %.3f kWh\n", energy);
+  Serial.printf("frequency             : %.2f Hz\n", freq);
+  Serial.printf("pf                    : %.2f\n", pf);
+  Serial.printf("apparent_power        : %.2f VA\n", apparentPower);
+  Serial.printf("load_index            : %.2f\n", loadIndex);
+  Serial.printf("current_freq_ratio    : %.4f\n", currentFreqRatio);
+
+  Serial.println("\n--- TEMPERATURE ---");
+  Serial.printf("motor_temp            : %.2f °C\n", motorTemp);
+  Serial.printf("ambient_temp          : %.2f °C\n", ambientTemp);
+  Serial.printf("bearing_temp          : %.2f °C\n", bearingTemp);
+  Serial.printf("delta_temp            : %.2f °C\n", deltaTemp);
+  Serial.printf("temp_gradient         : %.2f °C\n", tempGradient);
+  Serial.printf("bearing_motor_diff    : %.2f °C\n", bearingMotorTempDiff);
+  Serial.printf("hotspot               : %s\n", hotspot ? "true" : "false");
+
+  Serial.println("\n--- DUST ---");
+  Serial.printf("dust                  : %.2f ug/m3\n", dust);
+  Serial.printf("soiling_loss          : %.2f %%\n", soilingLoss);
+
+  Serial.println("\n--- VIBRATION ---");
+  Serial.printf("vibration_rms_mm_s    : %.2f mm/s\n", rms_mm_s);
+  Serial.printf("vibration_peak_g      : %.4f g\n", peak);
+  Serial.printf("crest_factor          : %.2f\n", crestFactor);
+  Serial.printf("unbalance             : %.2f %%\n", unbalance);
+
+  Serial.println("\n--- HEALTH ---");
+  Serial.printf("bearing_health        : %.2f %%\n", bearingHealth);
+  Serial.printf("health_index          : %.2f %%\n", healthIndex);
+
+  Serial.println("\n--- TIME ---");
+  Serial.printf("timestamp             : %lu\n", (uint32_t)time(nullptr));
+
+  Serial.println("=============================================\n");
+
 }
