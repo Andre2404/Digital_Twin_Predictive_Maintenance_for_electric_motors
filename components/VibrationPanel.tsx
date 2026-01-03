@@ -10,6 +10,8 @@ interface VibrationPanelProps {
   rotorUnbalanceScore: number;
   bearingHealthScore: number;
   faultSpectrum?: { frequency: number; amplitude: number }[];
+  vibrationPeakG?: number;
+  crestFactor?: number;
 }
 
 export function VibrationPanel({
@@ -18,6 +20,8 @@ export function VibrationPanel({
   rotorUnbalanceScore,
   bearingHealthScore,
   faultSpectrum = [],
+  vibrationPeakG,
+  crestFactor,
 }: VibrationPanelProps) {
   const vibrationStatus = getStatusColor(vibrationRms, 'vibrationRms');
   
@@ -81,6 +85,46 @@ export function VibrationPanel({
           </p>
         )}
       </div>
+
+      {/* Vibration Peak & Crest Factor */}
+      {(vibrationPeakG !== undefined || crestFactor !== undefined) && (
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          {vibrationPeakG !== undefined && (
+            <div className="p-3 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-100">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Peak Vibration</span>
+                <span className={`text-xs px-2 py-0.5 rounded-full ${getStatusColor(vibrationPeakG, 'vibrationPeakG').bgColor} text-white`}>
+                  {getStatusColor(vibrationPeakG, 'vibrationPeakG').label}
+                </span>
+              </div>
+              <div className="flex items-baseline gap-1">
+                <span className={`text-2xl font-bold ${getStatusColor(vibrationPeakG, 'vibrationPeakG').color}`}>
+                  {formatNumber(vibrationPeakG, 4)}
+                </span>
+                <span className="text-sm text-gray-500">g</span>
+              </div>
+              <p className="text-xs text-gray-400 mt-1">Peak acceleration</p>
+            </div>
+          )}
+
+          {crestFactor !== undefined && (
+            <div className="p-3 bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg border border-purple-100">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Crest Factor</span>
+                <span className={`text-xs px-2 py-0.5 rounded-full ${getStatusColor(crestFactor, 'crestFactor').bgColor} text-white`}>
+                  {getStatusColor(crestFactor, 'crestFactor').label}
+                </span>
+              </div>
+              <div className="flex items-baseline gap-1">
+                <span className={`text-2xl font-bold ${getStatusColor(crestFactor, 'crestFactor').color}`}>
+                  {formatNumber(crestFactor, 2)}
+                </span>
+              </div>
+              <p className="text-xs text-gray-400 mt-1">Peak/RMS ratio (3-5 normal)</p>
+            </div>
+          )}
+        </div>
+      )}
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Rotor Unbalance */}

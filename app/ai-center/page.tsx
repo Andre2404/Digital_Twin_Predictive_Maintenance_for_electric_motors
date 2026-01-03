@@ -1,91 +1,306 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { formatDate } from '@/lib/utils';
+import { getDatabase, ref, onValue } from 'firebase/database';
+import { app } from '@/lib/firebaseClient';
+import { symptoms } from "@/lib/expert-system/symptoms";
+import { rules } from "@/lib/expert-system/rules";
+import { fuzzyLevelToValue } from "@/lib/expert-system/fuzzyMembership";
 
-const DEFAULT_MOTOR_ID = 'default-motor-1';
-
-interface MLPredictionResult {
-  healthScore: number;
-  healthCategory: string;
-  topFeatures: string[];
-  timestamp: string;
-}
-
-interface ExpertDiagnosisResult {
-  diagnosis: string;
-  recommendation: string;
-  rulesMatched: Array<{
-    id: string;
-    condition: string;
-    diagnosis: string;
-    recommendation: string;
+/* =======================
+   TYPES
+======================= */
+interface HealthScoreResult {
+  score: number;
+  category: string;
+  factors: Array<{
+    parameter: string;
+    value: number;
+    status: string;
+    penalty: number;
   }>;
+}
+
+interface MLClassification {
+  willFailSoon: boolean;
+  failureProbability: number;
+  confidence: string;
+  thresholdMinutes: number;
+}
+
+interface MLRegression {
+  minutesToFailure: number;
+  hoursToFailure: number;
+  status: string;
+}
+
+interface PredictionResult {
+  healthScore: HealthScoreResult;
+  mlPrediction: {
+    classification: MLClassification;
+    regression: MLRegression;
+    readingsUsed: number;
+  } | null;
+  mlServiceStatus: string;
+  mlServiceError: string | null;
   timestamp: string;
 }
+
+type UserAnswer = "No" | "Sometimes" | "Yes";
+
+interface DiagnosisResult {
+  id: string;
+  level: "A" | "B" | "C";
+  damage: string;
+  solution: string;
+  cfRule: number;
+}
+
+interface VibrationHistory {
+  vibration_rms: number;
+  timestamp: number;
+}
+
+interface SensorData {
+  gridVoltage?: number;
+  motorCurrent?: number;
+  power?: number;
+  powerFactor?: number;
+  gridFrequency?: number;
+  vibrationRms?: number;
+  motorSurfaceTemp?: number;
+  bearingTemp?: number;
+  dustDensity?: number;
+}
+
+/* =======================
+   LEVEL SCORE
+======================= */
+const levelScore: Record<"A" | "B" | "C", number> = {
+  A: 40,
+  B: 70,
+  C: 100,
+};
 
 export default function AICenterPage() {
-  const [mlResult, setMlResult] = useState<MLPredictionResult | null>(null);
-  const [expertResult, setExpertResult] = useState<ExpertDiagnosisResult | null>(null);
-  const [isLoadingML, setIsLoadingML] = useState(false);
-  const [isLoadingExpert, setIsLoadingExpert] = useState(false);
+  /* ===== ML PREDICTION STATE ===== */
+  const [predictionResult, setPredictionResult] = useState<PredictionResult | null>(null);
+  const [isLoadingPrediction, setIsLoadingPrediction] = useState(false);
+  const [vibrationHistory, setVibrationHistory] = useState<VibrationHistory[]>([]);
+  const [latestSensorData, setLatestSensorData] = useState<SensorData | null>(null);
   
-  const runMLPrediction = async () => {
-    setIsLoadingML(true);
+  /* ===== EXPERT SYSTEM STATE ===== */
+  const [answers, setAnswers] = useState<Record<number, UserAnswer>>({});
+  const [results, setResults] = useState<DiagnosisResult[]>([]);
+  const [conclusion, setConclusion] = useState<{
+    percent: number;
+    label: string;
+  } | null>(null);
+  
+  // Listen to Firebase for vibration history and sensor data
+  useEffect(() => {
+    const db = getDatabase(app);
+    const sensorRef = ref(db, 'sensor_data/latest');
+    
+    const unsubscribe = onValue(sensorRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setLatestSensorData({
+          gridVoltage: data.voltage,
+          motorCurrent: data.current,
+          power: data.power,
+          powerFactor: data.pf,
+          gridFrequency: data.frequency,
+          vibrationRms: data.vibration_rms_mm_s,
+          motorSurfaceTemp: data.motor_temp,
+          bearingTemp: data.bearing_temp,
+          dustDensity: data.dust,
+        });
+        
+        if (data.vibration_rms_mm_s !== undefined) {
+          setVibrationHistory(prev => {
+            const newReading = {
+              vibration_rms: data.vibration_rms_mm_s,
+              timestamp: data.timestamp || Date.now(),
+            };
+            const updated = [...prev, newReading].slice(-50);
+            return updated;
+          });
+        }
+      }
+    });
+    
+    return () => unsubscribe();
+  }, []);
+  
+  /* =======================
+     ML PREDICTION
+  ======================= */
+  const runPrediction = async () => {
+    setIsLoadingPrediction(true);
     try {
       const response = await fetch('/api/ml/predict', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ motorId: DEFAULT_MOTOR_ID }),
+        body: JSON.stringify({ 
+          vibrationReadings: vibrationHistory.length > 0 ? vibrationHistory : undefined,
+          sensorData: latestSensorData,
+        }),
       });
       const result = await response.json();
-      setMlResult(result);
+      
+      if (result.success) {
+        setPredictionResult(result);
+      } else {
+        console.error('Prediction failed:', result.error);
+      }
     } catch (error) {
-      console.error('Error running ML prediction:', error);
+      console.error('Error running prediction:', error);
     } finally {
-      setIsLoadingML(false);
+      setIsLoadingPrediction(false);
+    }
+  };
+
+  /* =======================
+     EXPERT SYSTEM - UI HELPERS
+  ======================= */
+  const getLevelLabel = (level: "A" | "B" | "C") =>
+    level === "A" ? "Minor" : level === "B" ? "Moderate" : "Severe";
+
+  const getLevelColor = (level: "A" | "B" | "C") =>
+    level === "A"
+      ? "bg-green-100 text-green-800"
+      : level === "B"
+      ? "bg-yellow-100 text-yellow-800"
+      : "bg-red-100 text-red-800";
+
+  /* =======================
+     EXPERT SYSTEM - DIAGNOSIS
+  ======================= */
+  const runDiagnosis = () => {
+    const output: DiagnosisResult[] = [];
+
+    rules.forEach((rule) => {
+      const cfValues: number[] = [];
+
+      rule.symptoms.forEach((sid) => {
+        const userAnswer = answers[sid];
+        const expertCF = symptoms.find((s) => s.id === sid)?.cfExpert;
+
+        if (userAnswer && expertCF !== undefined) {
+          const userCF = fuzzyLevelToValue(userAnswer);
+          cfValues.push(userCF * expertCF);
+        }
+      });
+
+      if (cfValues.length === 0) return;
+
+      const cfRule =
+        rule.operator === "OR"
+          ? Math.max(...cfValues)
+          : Math.min(...cfValues);
+
+      if (cfRule > 0) {
+        output.push({
+          id: rule.id,
+          level: rule.level,
+          damage: rule.damage,
+          solution: rule.solution,
+          cfRule: Number(cfRule.toFixed(2)),
+        });
+      }
+    });
+
+    setResults(output);
+    calculateConclusion(output);
+  };
+  
+  /* =======================
+     ML PREDICTION - UI HELPERS  
+  ======================= */
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'Healthy':
+      case 'Normal':
+        return 'text-status-normal';
+      case 'At Risk':
+      case 'Warning':
+        return 'text-status-warning';
+      case 'Critical':
+        return 'text-status-critical';
+      default:
+        return 'text-gray-500';
     }
   };
   
-  const runExpertDiagnosis = async () => {
-    setIsLoadingExpert(true);
-    try {
-      const response = await fetch('/api/expert/diagnose', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ motorId: DEFAULT_MOTOR_ID }),
-      });
-      const result = await response.json();
-      setExpertResult(result);
-    } catch (error) {
-      console.error('Error running expert diagnosis:', error);
-    } finally {
-      setIsLoadingExpert(false);
+  const getStatusBgColor = (status: string) => {
+    switch (status) {
+      case 'Healthy':
+      case 'Normal':
+        return 'bg-status-normal';
+      case 'At Risk':
+      case 'Warning':
+        return 'bg-status-warning';
+      case 'Critical':
+        return 'bg-status-critical';
+      default:
+        return 'bg-gray-500';
     }
   };
-  
-  const getCategoryColor = (category: string) => {
-    if (category === 'Healthy') return 'text-status-normal';
-    if (category === 'At Risk') return 'text-status-warning';
-    return 'text-status-critical';
+
+  /* =======================
+     EXPERT SYSTEM - CONCLUSION
+  ======================= */
+  const calculateConclusion = (data: DiagnosisResult[]) => {
+    if (data.length === 0) {
+      setConclusion(null);
+      return;
+    }
+
+    const totalScore = data.reduce(
+      (sum, r) => sum + levelScore[r.level],
+      0
+    );
+
+    const percent = (totalScore / (data.length * 100)) * 100;
+
+    let label: string;
+
+    if (percent <= 40) {
+      label = "Minor";
+    } else if (percent <= 70) {
+      label = "Moderate";
+    } else {
+      label = "Severe";
+    }
+
+    setConclusion({
+      percent: Number(percent.toFixed(1)),
+      label,
+    });
   };
   
-  const getCategoryBgColor = (category: string) => {
-    if (category === 'Healthy') return 'bg-status-normal';
-    if (category === 'At Risk') return 'bg-status-warning';
-    return 'bg-status-critical';
-  };
-  
+  /* =======================
+     UI
+  ======================= */
   return (
     <div className="min-h-screen bg-lightgray">
       <div className="container mx-auto px-4 py-6">
         {/* Header */}
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-gray-800">AI Center</h1>
-          <p className="text-gray-600 mt-1">Machine Learning Prediction & Expert System Diagnosis</p>
+          <p className="text-gray-600 mt-1">Bearing Failure Prediction & Motor Health Analysis</p>
+          
+          <div className="mt-2 flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${vibrationHistory.length > 0 ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
+            <span className="text-sm text-gray-600">
+              {vibrationHistory.length} vibration readings collected
+            </span>
+          </div>
         </div>
         
-        {/* ML Health Score Section */}
+        {/* ===== BEARING FAILURE PREDICTION (ML) ===== */}
         <div className="card mb-6">
           <div className="flex items-center justify-between mb-4">
             <div>
@@ -93,88 +308,168 @@ export default function AICenterPage() {
                 <svg className="w-6 h-6 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                 </svg>
-                Predictive ML Health Score
+                Bearing Failure Prediction
               </h2>
-              <p className="text-sm text-gray-600 mt-1">Prediksi kondisi motor menggunakan Machine Learning</p>
+              <p className="text-sm text-gray-600 mt-1">ML model for bearing failure prediction & formula-based health score</p>
             </div>
             <button
-              onClick={runMLPrediction}
-              disabled={isLoadingML}
+              onClick={runPrediction}
+              disabled={isLoadingPrediction}
               className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isLoadingML ? 'Running...' : 'Run Prediction'}
+              {isLoadingPrediction ? 'Analyzing...' : 'Run Analysis'}
             </button>
           </div>
           
-          {mlResult ? (
-            <div className="mt-6">
-              <div className="flex items-center gap-8 mb-6">
+          {predictionResult ? (
+            <div className="mt-6 space-y-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Health Score Gauge */}
-                <div className="relative w-40 h-40">
-                  <svg className="transform -rotate-90 w-40 h-40">
-                    <circle
-                      cx="80"
-                      cy="80"
-                      r="70"
-                      stroke="#e5e7eb"
-                      strokeWidth="12"
-                      fill="none"
-                    />
-                    <circle
-                      cx="80"
-                      cy="80"
-                      r="70"
-                      stroke={
-                        mlResult.healthScore >= 80 ? '#10b981' :
-                        mlResult.healthScore >= 60 ? '#f59e0b' : '#ef4444'
-                      }
-                      strokeWidth="12"
-                      fill="none"
-                      strokeDasharray={`${mlResult.healthScore * 4.4} 440`}
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                  <div className="absolute inset-0 flex flex-col items-center justify-center">
-                    <span className={`text-4xl font-bold ${getCategoryColor(mlResult.healthCategory)}`}>
-                      {mlResult.healthScore}
-                    </span>
-                    <span className="text-sm text-gray-600">Health Score</span>
+                <div className="bg-gray-50 p-6 rounded-lg">
+                  <h3 className="text-lg font-semibold text-gray-800 mb-4">Motor Health Score</h3>
+                  <div className="flex items-center gap-6">
+                    <div className="relative w-32 h-32">
+                      <svg className="transform -rotate-90 w-32 h-32">
+                        <circle cx="64" cy="64" r="56" stroke="#e5e7eb" strokeWidth="12" fill="none" />
+                        <circle
+                          cx="64" cy="64" r="56"
+                          stroke={
+                            predictionResult.healthScore.score >= 80 ? '#10b981' :
+                            predictionResult.healthScore.score >= 60 ? '#f59e0b' : '#ef4444'
+                          }
+                          strokeWidth="12" fill="none"
+                          strokeDasharray={`${predictionResult.healthScore.score * 3.52} 352`}
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <span className={`text-3xl font-bold ${getStatusColor(predictionResult.healthScore.category)}`}>
+                          {predictionResult.healthScore.score}
+                        </span>
+                        <span className="text-xs text-gray-600">/ 100</span>
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full ${getStatusBgColor(predictionResult.healthScore.category)} text-white font-semibold mb-3`}>
+                        {predictionResult.healthScore.category}
+                      </div>
+                      <p className="text-sm text-gray-600">Formula-based calculation</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Analyzed at: {formatDate(predictionResult.timestamp)}
+                      </p>
+                    </div>
                   </div>
-                </div>
-                
-                {/* Category Badge */}
-                <div className="flex-1">
-                  <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full ${getCategoryBgColor(mlResult.healthCategory)} text-white text-lg font-semibold mb-4`}>
-                    {mlResult.healthCategory}
-                  </div>
-                  <p className="text-sm text-gray-600 mb-2">Analyzed at: {formatDate(mlResult.timestamp)}</p>
                   
-                  {/* Top Features */}
-                  {mlResult.topFeatures && mlResult.topFeatures.length > 0 && (
+                  {predictionResult.healthScore.factors.length > 0 && (
                     <div className="mt-4">
-                      <p className="text-sm font-medium text-gray-700 mb-2">Key factors affecting health:</p>
-                      <div className="flex flex-wrap gap-2">
-                        {mlResult.topFeatures.map((feature, idx) => (
-                          <span
-                            key={idx}
-                            className="px-3 py-1 bg-amber-100 text-amber-800 text-xs font-medium rounded-full"
-                          >
-                            {feature}
-                          </span>
+                      <p className="text-sm font-medium text-gray-700 mb-2">Contributing factors:</p>
+                      <div className="space-y-2">
+                        {predictionResult.healthScore.factors.slice(0, 5).map((factor, idx) => (
+                          <div key={idx} className="flex items-center justify-between text-sm">
+                            <span className="text-gray-600">{factor.parameter}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-gray-800">{factor.value.toFixed(2)}</span>
+                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                factor.status === 'critical' ? 'bg-red-100 text-red-700' :
+                                factor.status === 'warning' ? 'bg-yellow-100 text-yellow-700' :
+                                'bg-green-100 text-green-700'
+                              }`}>
+                                -{factor.penalty}
+                              </span>
+                            </div>
+                          </div>
                         ))}
                       </div>
                     </div>
                   )}
                 </div>
-              </div>
-              
-              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="text-sm text-blue-800 flex items-start gap-2">
-                  <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                  </svg>
-                  <span><strong>Note:</strong> This is a placeholder ML prediction. In production, this would integrate with a trained TensorFlow/PyTorch model via REST API or Python service.</span>
-                </p>
+                
+                {/* ML Prediction Results */}
+                <div className="bg-gray-50 p-6 rounded-lg">
+                  <h3 className="text-lg font-semibold text-gray-800 mb-4">ML Bearing Analysis</h3>
+                  
+                  {predictionResult.mlPrediction ? (
+                    <div className="space-y-4">
+                      <div className="bg-white p-4 rounded-lg border border-gray-200">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-medium text-gray-700">Will Fail Soon?</span>
+                          <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
+                            predictionResult.mlPrediction.classification.willFailSoon
+                              ? 'bg-red-100 text-red-700'
+                              : 'bg-green-100 text-green-700'
+                          }`}>
+                            {predictionResult.mlPrediction.classification.willFailSoon ? 'YES' : 'NO'}
+                          </span>
+                        </div>
+                        
+                        <div className="mt-3">
+                          <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
+                            <span>Failure Probability</span>
+                            <span>{(predictionResult.mlPrediction.classification.failureProbability * 100).toFixed(1)}%</span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-2">
+                            <div
+                              className={`h-2 rounded-full transition-all ${
+                                predictionResult.mlPrediction.classification.failureProbability > 0.7 ? 'bg-red-500' :
+                                predictionResult.mlPrediction.classification.failureProbability > 0.4 ? 'bg-yellow-500' : 'bg-green-500'
+                              }`}
+                              style={{ width: `${predictionResult.mlPrediction.classification.failureProbability * 100}%` }}
+                            ></div>
+                          </div>
+                          <div className="flex items-center justify-between mt-1">
+                            <span className="text-xs text-gray-500">
+                              Confidence: {predictionResult.mlPrediction.classification.confidence}
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              Threshold: {predictionResult.mlPrediction.classification.thresholdMinutes} min
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="bg-white p-4 rounded-lg border border-gray-200">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-medium text-gray-700">Time to Failure</span>
+                          <span className={`px-3 py-1 rounded-full text-sm font-semibold ${getStatusBgColor(predictionResult.mlPrediction.regression.status)} text-white`}>
+                            {predictionResult.mlPrediction.regression.status}
+                          </span>
+                        </div>
+                        
+                        <div className="text-center py-4">
+                          <span className={`text-4xl font-bold ${getStatusColor(predictionResult.mlPrediction.regression.status)}`}>
+                            {predictionResult.mlPrediction.regression.hoursToFailure.toFixed(1)}
+                          </span>
+                          <span className="text-lg text-gray-600 ml-1">hours</span>
+                          <p className="text-sm text-gray-500 mt-1">
+                            ({predictionResult.mlPrediction.regression.minutesToFailure.toFixed(0)} minutes)
+                          </p>
+                        </div>
+                        
+                        <p className="text-xs text-gray-500 text-center">
+                          Based on {predictionResult.mlPrediction.readingsUsed} vibration readings
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
+                      <div className="flex items-start gap-2">
+                        <svg className="w-5 h-5 text-yellow-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                        </svg>
+                        <div>
+                          <p className="text-sm font-medium text-yellow-800">ML Service Unavailable</p>
+                          <p className="text-sm text-yellow-700 mt-1">
+                            {predictionResult.mlServiceError || 'Could not connect to Python ML service'}
+                          </p>
+                          <p className="text-xs text-yellow-600 mt-2">
+                            Make sure the ML service is running: <code className="bg-yellow-100 px-1 rounded">cd ml_service && python app.py</code>
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           ) : (
@@ -182,12 +477,17 @@ export default function AICenterPage() {
               <svg className="w-16 h-16 mx-auto mb-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
               </svg>
-              <p>Click "Run Prediction" to analyze motor health</p>
+              <p className="mb-2">Click &quot;Run Analysis&quot; to analyze motor health and bearing condition</p>
+              <p className="text-sm text-gray-400">
+                {vibrationHistory.length > 0 
+                  ? `${vibrationHistory.length} vibration readings ready for analysis`
+                  : 'Collecting vibration data from sensors...'}
+              </p>
             </div>
           )}
         </div>
         
-        {/* Expert System Section */}
+        {/* ===== EXPERT SYSTEM DIAGNOSIS ===== */}
         <div className="card mb-6">
           <div className="flex items-center justify-between mb-4">
             <div>
@@ -195,126 +495,102 @@ export default function AICenterPage() {
                 <svg className="w-6 h-6 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
-                Expert System Diagnosis
+                Expert System Motor Diagnosis
               </h2>
-              <p className="text-sm text-gray-600 mt-1">Analisis berbasis rule engine untuk diagnosa masalah</p>
+              <p className="text-sm text-gray-600 mt-1">Rule engine-based analysis for motor problem diagnosis</p>
             </div>
-            <button
-              onClick={runExpertDiagnosis}
-              disabled={isLoadingExpert}
-              className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isLoadingExpert ? 'Analyzing...' : 'Run Diagnosis'}
-            </button>
           </div>
           
-          {expertResult ? (
-            <div className="mt-6">
-              {/* Diagnosis */}
-              <div className="mb-6">
-                <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
-                  <svg className="w-5 h-5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  Diagnosis
-                </h3>
-                <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                  <p className="text-gray-800">{expertResult.diagnosis}</p>
+          {/* Symptom Questions */}
+          <div className="space-y-4">
+            {symptoms.map((symptom) => (
+              <div
+                key={symptom.id}
+                className="p-4 border rounded bg-gray-50"
+              >
+                <p className="font-medium mb-2">
+                  {symptom.question}
+                </p>
+
+                <div className="flex gap-4">
+                  {(["No", "Sometimes", "Yes"] as UserAnswer[]).map(
+                    (option) => (
+                      <label
+                        key={option}
+                        className="flex items-center gap-1 cursor-pointer"
+                      >
+                        <input
+                          type="radio"
+                          name={`symptom-${symptom.id}`}
+                          checked={answers[symptom.id] === option}
+                          onChange={() =>
+                            setAnswers((prev) => ({
+                              ...prev,
+                              [symptom.id]: option,
+                            }))
+                          }
+                          className="w-4 h-4 text-primary"
+                        />
+                        {option}
+                      </label>
+                    )
+                  )}
                 </div>
               </div>
-              
-              {/* Recommendations */}
-              <div className="mb-6">
-                <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
-                  <svg className="w-5 h-5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                  </svg>
-                  Recommendations
-                </h3>
-                <div className="p-4 bg-green-50 rounded-lg border border-green-200">
-                  <pre className="whitespace-pre-wrap text-sm text-gray-800 font-sans">
-                    {expertResult.recommendation}
-                  </pre>
+            ))}
+          </div>
+
+          <button
+            onClick={runDiagnosis}
+            className="btn-secondary w-full mt-6"
+          >
+            Run Diagnosis
+          </button>
+
+          {/* ===== DIAGNOSIS RESULTS ===== */}
+          {results.length > 0 && (
+            <div className="mt-6 space-y-4">
+              <h3 className="text-xl font-bold text-gray-800">
+                Diagnosis Results
+              </h3>
+
+              {results.map((r) => (
+                <div key={r.id} className="p-4 border rounded bg-white">
+                  <span
+                    className={`px-3 py-1 rounded text-sm font-medium ${getLevelColor(
+                      r.level
+                    )}`}
+                  >
+                    {getLevelLabel(r.level)}
+                  </span>
+
+                  <p className="mt-2 font-medium text-gray-800">{r.damage}</p>
+                  <p className="text-sm text-gray-600">
+                    {r.solution}
+                  </p>
+
+                  <p className="text-sm font-semibold mt-2 text-primary">
+                    CF Rule: {r.cfRule} / 1
+                  </p>
                 </div>
-              </div>
-              
-              {/* Rules Matched */}
-              {expertResult.rulesMatched && expertResult.rulesMatched.length > 0 && (
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
-                    <svg className="w-5 h-5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                    Rules Matched ({expertResult.rulesMatched.length})
-                  </h3>
-                  <div className="space-y-3">
-                    {expertResult.rulesMatched.map((rule) => (
-                      <div key={rule.id} className="p-4 bg-white border border-gray-200 rounded-lg">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="px-2 py-1 bg-primary text-white text-xs font-mono rounded">
-                            {rule.id}
-                          </span>
-                          <span className="text-xs text-gray-600">{rule.condition}</span>
-                        </div>
-                        <p className="text-sm text-gray-800 font-medium mb-1">{rule.diagnosis}</p>
-                        <p className="text-sm text-gray-600">{rule.recommendation}</p>
-                      </div>
-                    ))}
-                  </div>
+              ))}
+
+              {conclusion && (
+                <div className="mt-6 p-4 border rounded bg-blue-50">
+                  <h4 className="font-bold text-lg mb-1 text-gray-800">
+                    Final Conclusion
+                  </h4>
+
+                  <p className="text-md mt-1 text-gray-700">
+                    <strong>{conclusion.label}</strong> with severity score{" "}
+                    <strong>{conclusion.percent}%</strong>
+                  </p>
                 </div>
               )}
-              
-              <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <p className="text-sm text-blue-800 flex items-start gap-2">
-                  <svg className="w-5 h-5 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                  </svg>
-                  <span><strong>Note:</strong> This is a placeholder expert system with hardcoded rules. In production, integrate with a proper rule engine (e.g., Drools, Nools) for dynamic rule management.</span>
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="text-center py-12 text-gray-500">
-              <svg className="w-16 h-16 mx-auto mb-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              <p>Click "Run Diagnosis" to analyze motor issues</p>
             </div>
           )}
-        </div>
-        
-        {/* Future Features */}
-        <div className="card">
-          <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
-            <svg className="w-6 h-6 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-            Coming Soon
-          </h2>
-          <div className="space-y-3">
-            <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-              <h3 className="font-semibold text-gray-800 mb-1">Model Management</h3>
-              <p className="text-sm text-gray-600">
-                Upload dan update ML models melalui UI. Versioning dan A/B testing untuk models.
-              </p>
-            </div>
-            <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-              <h3 className="font-semibold text-gray-800 mb-1">Rule Editor</h3>
-              <p className="text-sm text-gray-600">
-                Visual rule editor untuk menambah, mengedit, dan menghapus aturan expert system tanpa coding.
-              </p>
-            </div>
-            <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-              <h3 className="font-semibold text-gray-800 mb-1">Training Dashboard</h3>
-              <p className="text-sm text-gray-600">
-                Monitor training progress, metrics, dan performance comparison antar model versions.
-              </p>
-            </div>
-          </div>
         </div>
       </div>
     </div>
   );
 }
-

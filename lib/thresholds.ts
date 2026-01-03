@@ -22,7 +22,14 @@ export type ParameterType =
   | 'motorSurfaceTemp'
   | 'bearingTemp'
   | 'dustDensity'
-  | 'vibrationRms';
+  | 'vibrationRms'
+  | 'power'
+  | 'apparentPower'
+  | 'loadIndex'
+  | 'ambientTemp'
+  | 'deltaTemp'
+  | 'vibrationPeakG'
+  | 'crestFactor';
 
 /**
  * Get status color and label based on parameter value and type
@@ -216,6 +223,181 @@ export function getStatusColor(value: number, parameterType: ParameterType): Sta
         };
       }
     
+    case 'power':
+      // Normal range for small motor: < 500W, Warning: 500-750W, Critical: > 750W
+      if (value < 500) {
+        return {
+          level: 'normal',
+          label: 'Normal',
+          color: 'text-status-normal',
+          bgColor: 'bg-status-normal'
+        };
+      } else if (value >= 500 && value <= 750) {
+        return {
+          level: 'warning',
+          label: 'Warning',
+          color: 'text-status-warning',
+          bgColor: 'bg-status-warning'
+        };
+      } else {
+        return {
+          level: 'critical',
+          label: 'Critical',
+          color: 'text-status-critical',
+          bgColor: 'bg-status-critical'
+        };
+      }
+    
+    case 'apparentPower':
+      // Normal: < 600VA, Warning: 600-900VA, Critical: > 900VA
+      if (value < 600) {
+        return {
+          level: 'normal',
+          label: 'Normal',
+          color: 'text-status-normal',
+          bgColor: 'bg-status-normal'
+        };
+      } else if (value >= 600 && value <= 900) {
+        return {
+          level: 'warning',
+          label: 'Warning',
+          color: 'text-status-warning',
+          bgColor: 'bg-status-warning'
+        };
+      } else {
+        return {
+          level: 'critical',
+          label: 'Critical',
+          color: 'text-status-critical',
+          bgColor: 'bg-status-critical'
+        };
+      }
+    
+    case 'loadIndex':
+      // Load Index 0-1: Normal < 0.8, Warning 0.8-0.95, Critical > 0.95
+      if (value < 0.8) {
+        return {
+          level: 'normal',
+          label: 'Normal',
+          color: 'text-status-normal',
+          bgColor: 'bg-status-normal'
+        };
+      } else if (value >= 0.8 && value <= 0.95) {
+        return {
+          level: 'warning',
+          label: 'Warning',
+          color: 'text-status-warning',
+          bgColor: 'bg-status-warning'
+        };
+      } else {
+        return {
+          level: 'critical',
+          label: 'Overload',
+          color: 'text-status-critical',
+          bgColor: 'bg-status-critical'
+        };
+      }
+    
+    case 'ambientTemp':
+      // Ambient temp: Normal < 35°C, Warning 35-45°C, Critical > 45°C
+      if (value < 35) {
+        return {
+          level: 'normal',
+          label: 'Normal',
+          color: 'text-status-normal',
+          bgColor: 'bg-status-normal'
+        };
+      } else if (value >= 35 && value <= 45) {
+        return {
+          level: 'warning',
+          label: 'Warm',
+          color: 'text-status-warning',
+          bgColor: 'bg-status-warning'
+        };
+      } else {
+        return {
+          level: 'critical',
+          label: 'Hot',
+          color: 'text-status-critical',
+          bgColor: 'bg-status-critical'
+        };
+      }
+    
+    case 'deltaTemp':
+      // Delta Temp (Motor - Ambient): Normal < 30°C, Warning 30-50°C, Critical > 50°C
+      if (value < 30) {
+        return {
+          level: 'normal',
+          label: 'Normal',
+          color: 'text-status-normal',
+          bgColor: 'bg-status-normal'
+        };
+      } else if (value >= 30 && value <= 50) {
+        return {
+          level: 'warning',
+          label: 'Elevated',
+          color: 'text-status-warning',
+          bgColor: 'bg-status-warning'
+        };
+      } else {
+        return {
+          level: 'critical',
+          label: 'High Rise',
+          color: 'text-status-critical',
+          bgColor: 'bg-status-critical'
+        };
+      }
+    
+    case 'vibrationPeakG':
+      // Vibration Peak (g): Normal < 0.5g, Warning 0.5-1.0g, Critical > 1.0g
+      if (value < 0.5) {
+        return {
+          level: 'normal',
+          label: 'Normal',
+          color: 'text-status-normal',
+          bgColor: 'bg-status-normal'
+        };
+      } else if (value >= 0.5 && value <= 1.0) {
+        return {
+          level: 'warning',
+          label: 'Warning',
+          color: 'text-status-warning',
+          bgColor: 'bg-status-warning'
+        };
+      } else {
+        return {
+          level: 'critical',
+          label: 'Critical',
+          color: 'text-status-critical',
+          bgColor: 'bg-status-critical'
+        };
+      }
+    
+    case 'crestFactor':
+      // Crest Factor: Normal 3-5, Warning 5-7, Critical > 7 (indicates bearing damage)
+      if (value >= 3 && value < 5) {
+        return {
+          level: 'normal',
+          label: 'Normal',
+          color: 'text-status-normal',
+          bgColor: 'bg-status-normal'
+        };
+      } else if (value < 3 || (value >= 5 && value <= 7)) {
+        return {
+          level: 'warning',
+          label: 'Warning',
+          color: 'text-status-warning',
+          bgColor: 'bg-status-warning'
+        };
+      } else {
+        return {
+          level: 'critical',
+          label: 'Bearing Issue',
+          color: 'text-status-critical',
+          bgColor: 'bg-status-critical'
+        };
+      }
+    
     default:
       return {
         level: 'normal',
@@ -287,6 +469,41 @@ export const PARAMETER_CONFIG = {
     label: 'Vibration RMS',
     unit: 'mm/s',
     icon: 'V',
+  },
+  power: {
+    label: 'Active Power',
+    unit: 'W',
+    icon: 'P',
+  },
+  apparentPower: {
+    label: 'Apparent Power',
+    unit: 'VA',
+    icon: 'S',
+  },
+  loadIndex: {
+    label: 'Load Index',
+    unit: '',
+    icon: 'L',
+  },
+  ambientTemp: {
+    label: 'Ambient Temp',
+    unit: '°C',
+    icon: 'T',
+  },
+  deltaTemp: {
+    label: 'Delta Temp',
+    unit: '°C',
+    icon: 'ΔT',
+  },
+  vibrationPeakG: {
+    label: 'Vibration Peak',
+    unit: 'g',
+    icon: 'G',
+  },
+  crestFactor: {
+    label: 'Crest Factor',
+    unit: '',
+    icon: 'CF',
   },
 } as const;
 

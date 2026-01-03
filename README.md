@@ -1,19 +1,19 @@
-# Mechasense - Digital twin predictive maintenance for motor electric
+# Mechasense - Predictive Maintenance for Electric Motor
 
 **IoT-based Predictive Maintenance for AC Motors**
 
-Mechasense adalah platform monitoring dan predictive maintenance untuk motor AC yang mengintegrasikan IoT sensors, Machine Learning predictions, dan Expert System diagnosis.
+Mechasense is a monitoring and predictive maintenance platform for AC motors that integrates IoT sensors, Machine Learning predictions, and Expert System diagnosis.
 
 ---
 
 ## 🎯 Features
 
-- **Real-time Dashboard**: Monitor 5 sensor (MLX90614, PZEM-004T, DS18B20, GP2Y1010, MPU6050) secara real-time
-- **Predictive ML Health Score**: Placeholder untuk integrasi model ML prediksi kesehatan motor
-- **Expert System Diagnosis**: Rule-based diagnosis dengan rekomendasi maintenance
-- **Historical Analytics**: Visualisasi tren dan riwayat data sensor
-- **Smart Alerts**: Automated alerts berdasarkan threshold parameter
-- **Modern UI**: Clean, responsive dashboard dengan industrial vibes
+- **Real-time Dashboard**: Monitor 5 sensors (MLX90614, PZEM-004T, DS18B20, GP2Y1010, MPU6050) in real-time via Firebase
+- **ML Health Score & Bearing Prediction**: Machine Learning model for motor health scoring and bearing failure prediction
+- **Expert System Diagnosis**: Rule-based diagnosis with certainty factor and fuzzy logic for motor problem analysis
+- **Historical Analytics**: Trend visualization with configurable time ranges (1h, 6h, 24h, 7d)
+- **Smart Alerts**: Automated alerts based on parameter thresholds
+- **Modern UI**: Clean, responsive dashboard with industrial design
 
 ---
 
@@ -23,9 +23,8 @@ Mechasense adalah platform monitoring dan predictive maintenance untuk motor AC 
 - **Language**: TypeScript
 - **Styling**: Tailwind CSS
 - **Charts**: Recharts
-- **Database**: PostgreSQL / SQLite
-- **ORM**: Prisma
-- **Real-time**: Polling (mudah upgrade ke SSE/WebSocket)
+- **Database**: Firebase Realtime Database
+- **ML Service**: Python Flask (optional, for advanced ML predictions)
 
 ---
 
@@ -41,8 +40,7 @@ mechasense/
 │   ├── api/
 │   │   ├── ingest/         # ESP data ingestion endpoint
 │   │   ├── latest/         # Get latest sensor data
-│   │   ├── ml/predict/     # ML prediction endpoint
-│   │   └── expert/diagnose/# Expert system endpoint
+│   │   └── ml/predict/     # ML prediction endpoint
 │   ├── layout.tsx
 │   ├── page.tsx
 │   └── globals.css
@@ -52,18 +50,25 @@ mechasense/
 │   ├── MotorOverviewCard.tsx
 │   ├── TemperaturePanel.tsx
 │   ├── VibrationPanel.tsx
+│   ├── ElectricalPanel.tsx
 │   ├── DustPanel.tsx
-│   ├── AlertList.tsx
-│   └── RealtimeStatusBar.tsx
+│   └── AlertList.tsx
 ├── hooks/
-│   └── useRealtimeSensorData.ts  # Real-time data hook
+│   └── useRealtimeSensorData.ts  # Real-time Firebase data hook
 ├── lib/
-│   ├── prisma.ts           # Prisma client
+│   ├── firebaseClient.ts   # Firebase configuration
 │   ├── thresholds.ts       # Threshold logic & colors
-│   └── utils.ts            # Utility functions
-├── prisma/
-│   ├── schema.prisma       # Database schema
-│   └── seed.ts             # Seed script for dummy data
+│   ├── calculateHealthScore.ts  # Formula-based health calculation
+│   ├── utils.ts            # Utility functions
+│   └── expert-system/      # Expert system module
+│       ├── symptoms.ts     # Motor symptom definitions
+│       ├── rules.ts        # Diagnosis rules
+│       ├── fuzzyMembership.ts  # Fuzzy logic mapping
+│       └── diagnosisEngine.ts  # Diagnosis engine
+├── ml_service/             # Python ML service
+│   ├── app.py              # Flask API server
+│   ├── models/             # Trained ML models
+│   └── requirements.txt
 ├── package.json
 ├── tailwind.config.ts
 ├── tsconfig.json
@@ -76,16 +81,18 @@ mechasense/
 
 ### Prerequisites
 
-- Node.js 18+ 
-- npm atau yarn
-- PostgreSQL (opsional, bisa pakai SQLite untuk demo)
+- Node.js 18+
+- npm or yarn
+- Python 3.8+ (optional, for ML service)
+- Firebase project with Realtime Database
 
 ### Installation
 
-1. **Clone repository** (atau gunakan folder ini)
+1. **Clone repository**
 
 ```bash
-cd "D:\APP\Web 3 Matkul"
+git clone https://github.com/your-username/mechasense.git
+cd mechasense
 ```
 
 2. **Install dependencies**
@@ -94,56 +101,73 @@ cd "D:\APP\Web 3 Matkul"
 npm install
 ```
 
-3. **Setup database**
+3. **Setup Firebase**
 
-Untuk **SQLite** (demo):
-```bash
-# Database sudah dikonfigurasi di .env
-# Tidak perlu setup tambahan
+Create a `.env.local` file with your Firebase configuration:
+
+```env
+NEXT_PUBLIC_FIREBASE_API_KEY=your_api_key
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
+NEXT_PUBLIC_FIREBASE_DATABASE_URL=https://your_project.firebaseio.com
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id
 ```
 
-Untuk **PostgreSQL** (production):
-```bash
-# Edit .env dan ganti DATABASE_URL:
-DATABASE_URL="postgresql://user:password@localhost:5432/mechasense?schema=public"
-```
-
-4. **Run Prisma migrations**
-
-```bash
-npx prisma migrate dev --name init
-```
-
-5. **Seed database dengan dummy data**
-
-```bash
-npm run prisma:seed
-```
-
-6. **Run development server**
+4. **Run development server**
 
 ```bash
 npm run dev
 ```
 
-7. **Open browser**
+5. **Open browser**
 
 Navigate to [http://localhost:3000/dashboard](http://localhost:3000/dashboard)
 
 ---
 
-## 📊 Color Palette
+## 🤖 AI Center Features
 
-Mechasense menggunakan color scheme berikut:
+The AI Center (`/ai-center`) combines two diagnostic systems:
 
-- **Primary Dark Blue** (`#1B3C53`): Navbar, header, tombol utama
-- **Secondary Blue** (`#234C6A`): Card header, accent
-- **Muted Blue** (`#456882`): Background card, secondary button
-- **Light Grey** (`#E3E3E3`): Page background, borders
-- **Status Colors**:
-  - Normal: `#10b981` (green)
-  - Warning: `#f59e0b` (amber)
-  - Critical: `#ef4444` (red)
+### 1. ML Bearing Failure Prediction
+
+- **Health Score**: Formula-based calculation (0-100) considering:
+
+  - Vibration RMS levels
+  - Motor and bearing temperatures
+  - Current and power factor
+  - Voltage deviation
+  - Dust density
+
+- **ML Prediction** (requires Python service):
+  - Classification: Will the bearing fail soon? (Yes/No)
+  - Regression: Estimated time to failure (hours/minutes)
+
+### 2. Expert System Motor Diagnosis
+
+Interactive rule-based diagnosis system using:
+
+- **10 Motor Symptoms**: Questions about motor conditions
+- **Certainty Factor (CF)**: Confidence level for each diagnosis
+- **Fuzzy Logic**: Three-level user input (No/Sometimes/Yes)
+- **Damage Levels**: Minor (A), Moderate (B), Severe (C)
+
+#### Expert System Symptoms:
+
+| ID  | Symptom                           | CF Expert |
+| --- | --------------------------------- | --------- |
+| 1   | Motor does not rotate             | 1.0       |
+| 2   | Humming sound is heard            | 0.6       |
+| 3   | Motor rotation is slow            | 0.8       |
+| 4   | Motor heats up quickly            | 0.7       |
+| 5   | Burning smell from motor          | 1.0       |
+| 6   | MCB or fuse trips frequently      | 0.9       |
+| 7   | Excessive vibration               | 0.8       |
+| 8   | Rough or abnormal sound           | 1.0       |
+| 9   | Capacitor is swollen              | 0.9       |
+| 10  | Motor weak despite normal voltage | 1.0       |
 
 ---
 
@@ -151,9 +175,9 @@ Mechasense menggunakan color scheme berikut:
 
 ### Sending Data from ESP32
 
-ESP32 mengirim data sensor via HTTP POST ke endpoint `/api/ingest`.
+ESP32 sends sensor data via HTTP POST to Firebase or the `/api/ingest` endpoint.
 
-**Contoh payload JSON:**
+**Example JSON payload:**
 
 ```json
 {
@@ -165,192 +189,71 @@ ESP32 mengirim data sensor via HTTP POST ke endpoint `/api/ingest`.
   "dailyEnergyKwh": 18.5,
   "gridFrequency": 50.1,
   "vibrationRms": 2.3,
-  "faultFrequency": 48.5,
-  "rotorUnbalanceScore": 92.0,
-  "bearingHealthScore": 88.0,
   "motorSurfaceTemp": 68.2,
-  "thermalAnomalyIndex": 12.0,
   "bearingTemp": 65.5,
-  "dustDensity": 35.0,
-  "soilingLossPercent": 2.5
+  "dustDensity": 35.0
 }
 ```
 
-**Contoh kode ESP32 (Arduino/PlatformIO):**
+---
 
-```cpp
-#include <WiFi.h>
-#include <HTTPClient.h>
-#include <ArduinoJson.h>
+## 📊 Color Palette
 
-const char* ssid = "YOUR_WIFI_SSID";
-const char* password = "YOUR_WIFI_PASSWORD";
-const char* serverUrl = "http://YOUR_SERVER_IP:3000/api/ingest";
+Mechasense uses the following color scheme:
 
-void sendSensorData() {
-  if (WiFi.status() == WL_CONNECTED) {
-    HTTPClient http;
-    http.begin(serverUrl);
-    http.addHeader("Content-Type", "application/json");
-    
-    // Create JSON payload
-    StaticJsonDocument<512> doc;
-    doc["motorId"] = "default-motor-1";
-    doc["gridVoltage"] = readVoltage();
-    doc["motorCurrent"] = readCurrent();
-    doc["powerConsumption"] = readPower();
-    doc["powerFactor"] = readPowerFactor();
-    doc["dailyEnergyKwh"] = readEnergy();
-    doc["gridFrequency"] = readFrequency();
-    doc["vibrationRms"] = readVibration();
-    doc["rotorUnbalanceScore"] = calculateRotorScore();
-    doc["bearingHealthScore"] = calculateBearingScore();
-    doc["motorSurfaceTemp"] = readIRTemp();
-    doc["bearingTemp"] = readBearingTemp();
-    doc["dustDensity"] = readDust();
-    doc["soilingLossPercent"] = calculateSoiling();
-    
-    String payload;
-    serializeJson(doc, payload);
-    
-    int httpResponseCode = http.POST(payload);
-    
-    if (httpResponseCode > 0) {
-      Serial.printf("Data sent successfully: %d\n", httpResponseCode);
-    } else {
-      Serial.printf("Error sending data: %s\n", http.errorToString(httpResponseCode).c_str());
-    }
-    
-    http.end();
-  }
-}
-
-void setup() {
-  Serial.begin(115200);
-  WiFi.begin(ssid, password);
-  
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("\nWiFi connected");
-}
-
-void loop() {
-  sendSensorData();
-  delay(2000); // Send every 2 seconds
-}
-```
+- **Primary Dark Blue** (`#1B3C53`): Navbar, header, primary buttons
+- **Secondary Blue** (`#234C6A`): Card header, accent
+- **Muted Blue** (`#456882`): Card background, secondary buttons
+- **Light Grey** (`#E3E3E3`): Page background, borders
+- **Status Colors**:
+  - Normal: `#10b981` (green)
+  - Warning: `#f59e0b` (amber)
+  - Critical: `#ef4444` (red)
 
 ---
 
 ## 📈 Threshold Configuration
 
-Berikut adalah threshold yang digunakan untuk menentukan status sensor:
+The following thresholds determine sensor status:
 
-| Parameter | Normal | Warning | Critical |
-|-----------|--------|---------|----------|
-| Grid Voltage | < 200 V | 200-230 V | > 230 V |
-| Motor Current | < 4 A | 4-5.5 A | > 5.5 A |
-| Power Factor | > 0.85 | 0.7-0.85 | < 0.7 |
-| Grid Frequency | 49.5-50.5 Hz | - | Outside range |
-| Motor Temp | < 70°C | 70-85°C | > 85°C |
-| Bearing Temp | < 70°C | 70-85°C | > 85°C |
-| Dust Density | < 50 µg/m³ | 50-100 µg/m³ | > 100 µg/m³ |
-| Vibration RMS | < 2.8 mm/s | 2.8-4.5 mm/s | > 4.5 mm/s |
+| Parameter      | Normal       | Warning        | Critical       |
+| -------------- | ------------ | -------------- | -------------- |
+| Grid Voltage   | 198-242 V    | ±10% deviation | ±15% deviation |
+| Motor Current  | < 4.6 A      | 4.6-5.5 A      | > 5.5 A        |
+| Power Factor   | > 0.85       | 0.70-0.85      | < 0.70         |
+| Grid Frequency | 49.5-50.5 Hz | ±1%            | ±2%            |
+| Motor Temp     | < 70°C       | 70-85°C        | > 85°C         |
+| Bearing Temp   | < 65°C       | 65-80°C        | > 80°C         |
+| Dust Density   | < 50 µg/m³   | 50-100 µg/m³   | > 100 µg/m³    |
+| Vibration RMS  | < 2.8 mm/s   | 2.8-4.5 mm/s   | > 4.5 mm/s     |
 
-Threshold dapat disesuaikan di file `lib/thresholds.ts`.
-
----
-
-## 🤖 ML & Expert System Integration
-
-### Machine Learning
-
-Endpoint: `POST /api/ml/predict`
-
-**Saat ini**: Menggunakan dummy logic berdasarkan threshold
-**Production**: Integrasikan dengan model TensorFlow/PyTorch via REST API
-
-```typescript
-// Example: Call external Python ML service
-const mlResponse = await fetch('http://ml-service:5000/predict', {
-  method: 'POST',
-  body: JSON.stringify({ features: sensorData })
-});
-```
-
-### Expert System
-
-Endpoint: `POST /api/expert/diagnose`
-
-**Saat ini**: Hardcoded rules di `app/api/expert/diagnose/route.ts`
-**Production**: Integrasikan dengan rule engine seperti Drools atau Nools
-
-Contoh rules yang sudah diimplementasi:
-- High vibration + High bearing temp → Bearing damage
-- Low PF + High current → Overload
-- High vibration + Normal temp → Misalignment/Unbalance
-- Dan lainnya...
+Thresholds can be adjusted in `lib/thresholds.ts`.
 
 ---
 
-## 🧪 Testing
+## 🐍 ML Service (Optional)
 
-### Manual Testing
+To enable advanced ML predictions:
 
-1. Jalankan seed script untuk generate dummy data:
-```bash
-npm run prisma:seed
-```
-
-2. Buka dashboard di browser
-
-3. Test POST data via curl:
-```bash
-curl -X POST http://localhost:3000/api/ingest \
-  -H "Content-Type: application/json" \
-  -d '{
-    "motorId": "default-motor-1",
-    "gridVoltage": 225,
-    "motorCurrent": 4.2,
-    "powerConsumption": 850,
-    "powerFactor": 0.87,
-    "dailyEnergyKwh": 20,
-    "gridFrequency": 50.0,
-    "vibrationRms": 2.5,
-    "rotorUnbalanceScore": 90,
-    "bearingHealthScore": 85,
-    "motorSurfaceTemp": 72,
-    "bearingTemp": 68,
-    "dustDensity": 45,
-    "soilingLossPercent": 3.0
-  }'
-```
-
----
-
-## 📦 Deployment
-
-### Production Checklist
-
-- [ ] Ganti SQLite ke PostgreSQL di `.env`
-- [ ] Set proper `NEXT_PUBLIC_API_BASE_URL`
-- [ ] Implementasi authentication (NextAuth.js recommended)
-- [ ] Setup HTTPS/SSL
-- [ ] Optimize Prisma queries dengan pagination
-- [ ] Implement rate limiting di API routes
-- [ ] Setup monitoring (Sentry, LogRocket, dll)
-- [ ] Deploy ke Vercel/Railway/DigitalOcean
-
-### Deploy ke Vercel
+1. **Navigate to ML service directory**
 
 ```bash
-npm install -g vercel
-vercel
+cd ml_service
 ```
 
-Jangan lupa tambahkan environment variables di Vercel dashboard.
+2. **Install Python dependencies**
+
+```bash
+pip install -r requirements.txt
+```
+
+3. **Run the ML service**
+
+```bash
+python app.py
+```
+
+The ML service runs on `http://localhost:5001` by default.
 
 ---
 
@@ -362,77 +265,41 @@ Jangan lupa tambahkan environment variables di Vercel dashboard.
 - `npm run build` - Build for production
 - `npm run start` - Start production server
 - `npm run lint` - Run ESLint
-- `npm run prisma:migrate` - Run Prisma migrations
-- `npm run prisma:seed` - Seed database
 
 ### Adding New Sensors
 
-1. Update Prisma schema (`prisma/schema.prisma`)
-2. Run migration: `npx prisma migrate dev`
-3. Update threshold logic (`lib/thresholds.ts`)
-4. Create/update UI components
-5. Update API ingestion endpoint
+1. Update Firebase data structure
+2. Update threshold logic (`lib/thresholds.ts`)
+3. Create/update UI components
+4. Update health score calculation if needed
 
 ---
 
-## 🐛 Troubleshooting
-
-### Prisma errors
-
-```bash
-npx prisma generate
-npx prisma migrate reset
-npm run prisma:seed
-```
-
-### Port already in use
-
-```bash
-# Kill process on port 3000
-npx kill-port 3000
-```
-
-### Database locked (SQLite)
-
-Stop the dev server and restart.
-
----
-
-## 📝 TODO / Future Improvements
+## 📝 Future Improvements
 
 - [ ] Authentication & authorization
-- [ ] Multi-motor support dengan selector
-- [ ] WebSocket untuk true real-time (ganti polling)
-- [ ] Export data ke CSV/Excel
-- [ ] Email notifications untuk alerts
+- [ ] Multi-motor support with selector
+- [ ] WebSocket for true real-time updates
+- [ ] Export data to CSV/Excel
+- [ ] Email/SMS notifications for alerts
 - [ ] Mobile app (React Native)
 - [ ] Dashboard customization (drag-drop widgets)
 - [ ] Maintenance scheduling & tracking
-- [ ] Integration dengan SCADA systems
-- [ ] Predictive maintenance recommendations timeline
+- [ ] Integration with SCADA systems
+- [ ] Predictive maintenance timeline
 
 ---
 
 ## 👥 Contributors
 
-- **Your Name** - Initial work
+Student of Mechatronics and Artificial Intelligence at University of Education Indonesia.
 
 ---
 
 ## 📄 License
 
-This project is for educational/demo purposes. Modify as needed for your use case.
+This project is for educational purposes. Modify as needed for your use case.
 
 ---
 
-## 🙏 Acknowledgments
-
-- Next.js & React team
-- Prisma team  
-- Recharts contributors
-- ESP32 community
-
----
-
-**Mechasense** - _Digital twin predictive maintenance for motor electric_ 🔧⚡
-
+**Mechasense** - Predictive Maintenance for Electric Motor\_ 🔧⚡

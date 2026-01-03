@@ -2,6 +2,7 @@
 
 import { getDatabase, ref, onValue, off } from "firebase/database";
 import { app } from "@/lib/firebaseClient";
+import { calculateHealthScore } from "@/lib/calculateHealthScore";
 import { useState, useEffect, useRef } from "react";
 
 /* =======================
@@ -23,20 +24,33 @@ interface SensorReading {
   powerFactor?: number;
   gridFrequency?: number;
   dailyEnergyKwh?: number;
+  apparentPower?: number; // VA
+  loadIndex?: number;
+  currentFreqRatio?: number;
 
   // Mechanical
   vibrationRms?: number;
+  vibrationPeakG?: number; // Peak acceleration in g
+  crestFactor?: number;
   faultFrequency?: number; // Dominant fault frequency (Hz)
   rotorUnbalanceScore?: number;
   bearingHealthScore?: number;
 
   // Thermal
   motorSurfaceTemp?: number;
+  ambientTemp?: number;
   bearingTemp?: number;
+  deltaTemp?: number;
+  tempGradient?: number;
+  bearingMotorTempDiff?: number;
+  hotspot?: boolean;
 
   // Environmental
   dustDensity?: number;
   soilingLossPercent?: number;
+
+  // Health
+  healthIndex?: number;
 }
 
 interface Alert {
@@ -307,21 +321,50 @@ export function useRealtimeSensorData(motorId: string) {
           powerFactor: raw.pf,
           gridFrequency: raw.frequency,
           dailyEnergyKwh: raw.energy,
+          apparentPower: raw.apparent_power,
+          loadIndex: raw.load_index,
+          currentFreqRatio: raw.current_freq_ratio,
 
           // Mechanical
           vibrationRms: raw.vibration_rms_mm_s,
+          vibrationPeakG: raw.vibration_peak_g,
+          crestFactor: raw.crest_factor,
           faultFrequency: raw.fault_frequency || raw.faultFrequency, // Support both naming
           rotorUnbalanceScore: raw.unbalance,
           bearingHealthScore: raw.bearing_health,
 
           // Thermal
           motorSurfaceTemp: raw.motor_temp,
+          ambientTemp: raw.ambient_temp,
           bearingTemp: raw.bearing_temp,
+          deltaTemp: raw.delta_temp,
+          tempGradient: raw.temp_gradient,
+          bearingMotorTempDiff: raw.bearing_motor_diff,
+          hotspot: raw.hotspot === true || raw.hotspot === 'true',
 
           // Environmental
           dustDensity: raw.dust,
           soilingLossPercent: raw.soiling_loss,
+
+          // Health (calculated from sensor data using formula)
+          healthIndex: undefined, // Will be calculated below
         };
+
+        // Calculate health score from sensor readings (formula-based)
+        if (latestReading) {
+          const healthResult = calculateHealthScore({
+            gridVoltage: latestReading.gridVoltage,
+            motorCurrent: latestReading.motorCurrent,
+            power: latestReading.power,
+            powerFactor: latestReading.powerFactor,
+            gridFrequency: latestReading.gridFrequency,
+            vibrationRms: latestReading.vibrationRms,
+            motorSurfaceTemp: latestReading.motorSurfaceTemp,
+            bearingTemp: latestReading.bearingTemp,
+            dustDensity: latestReading.dustDensity,
+          });
+          latestReading.healthIndex = healthResult.score;
+        }
 
         // Update ref untuk digunakan di interval
         latestReadingRef.current = latestReading;

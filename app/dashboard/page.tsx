@@ -10,6 +10,7 @@ import { TemperaturePanel } from '@/components/TemperaturePanel';
 import { VibrationPanel } from '@/components/VibrationPanel';
 import { DustPanel } from '@/components/DustPanel';
 import { AlertList } from '@/components/AlertList';
+import { ElectricalPanel } from '@/components/ElectricalPanel';
 import { type ParameterType } from '@/lib/thresholds';
 
 // Dynamic import untuk komponen 3D (hanya di client, no SSR)
@@ -105,8 +106,15 @@ export default function DashboardPage() {
         <div className="mb-6">
           <MotorOverviewCard
             motorName={data?.motor?.name ?? "Unknown Motor"}
-            healthScore={data?.latestHealth?.healthScoreMl ?? 0}
-            status={getMotorStatus(data?.latestHealth?.healthScoreMl)}
+            healthScore={
+              data?.latestReading?.healthIndex ?? 
+              data?.latestHealth?.healthScoreMl ?? 
+              0
+            }
+            status={getMotorStatus(
+              data?.latestReading?.healthIndex ?? 
+              data?.latestHealth?.healthScoreMl
+            )}
             operatingHoursToday={data?.operatingHoursToday ?? 0} // Real-time dari Firebase
             dailyEnergy={data?.dailyEnergyKwh ?? 0} // Real-time dihitung dari V × I × PF
           />
@@ -124,7 +132,11 @@ export default function DashboardPage() {
             powerFactor={data?.latestReading?.powerFactor ?? 1}
             gridFrequency={data?.latestReading?.gridFrequency ?? 50}
             dustDensity={data?.latestReading?.dustDensity ?? 0}
-            healthScore={data?.latestHealth?.healthScoreMl ?? 100}
+            healthScore={
+              data?.latestReading?.healthIndex ?? 
+              data?.latestHealth?.healthScoreMl ?? 
+              100
+            }
           />
         </div>
 
@@ -136,7 +148,11 @@ export default function DashboardPage() {
             motorSurfaceTemp={data?.latestReading?.motorSurfaceTemp ?? 25}
             vibrationRms={data?.latestReading?.vibrationRms ?? 0}
             power={data?.latestReading?.power ?? 0}
-            healthScore={data?.latestHealth?.healthScoreMl ?? 100}
+            healthScore={
+              data?.latestReading?.healthIndex ?? 
+              data?.latestHealth?.healthScoreMl ?? 
+              100
+            }
           />
         </div> */}
 
@@ -207,6 +223,20 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {/* Power Analysis */}
+        <div className="mb-6">
+          <h2 className="text-xl font-bold text-gray-800 mb-4">
+            Power Analysis
+          </h2>
+          <ElectricalPanel
+            power={data?.latestReading?.power ?? 0}
+            apparentPower={data?.latestReading?.apparentPower ?? 0}
+            loadIndex={data?.latestReading?.loadIndex ?? 0}
+            currentFreqRatio={data?.latestReading?.currentFreqRatio ?? 0}
+            energy={data?.latestReading?.dailyEnergyKwh ?? 0}
+          />
+        </div>
+
         {/* Temperature & Vibration & Dust */}
         <div className="mb-6">
           <h2 className="text-xl font-bold text-gray-800 mb-4">
@@ -216,6 +246,11 @@ export default function DashboardPage() {
             <TemperaturePanel
               motorSurfaceTemp={data?.latestReading?.motorSurfaceTemp ?? 0}
               bearingTemp={data?.latestReading?.bearingTemp ?? 0}
+              ambientTemp={data?.latestReading?.ambientTemp}
+              deltaTemp={data?.latestReading?.deltaTemp}
+              tempGradient={data?.latestReading?.tempGradient}
+              bearingMotorTempDiff={data?.latestReading?.bearingMotorTempDiff}
+              hotspot={data?.latestReading?.hotspot}
             />
 
             <VibrationPanel
@@ -225,6 +260,8 @@ export default function DashboardPage() {
                 data?.latestReading?.rotorUnbalanceScore ?? 0
               }
               bearingHealthScore={data?.latestReading?.bearingHealthScore ?? 0}
+              vibrationPeakG={data?.latestReading?.vibrationPeakG}
+              crestFactor={data?.latestReading?.crestFactor}
             />
 
             <DustPanel

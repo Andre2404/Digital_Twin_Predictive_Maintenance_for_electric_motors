@@ -3,77 +3,105 @@ import json
 import csv
 import time
 
-SERIAL_PORT = 'COM11' 
+# ================== CONFIG ==================
+SERIAL_PORT = 'COM11'
 BAUD_RATE = 115200
 FILENAME = 'data_motor_training.csv'
+READ_TIMEOUT = 2  # detik
 
-try:
-    ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
-    print(f"Terhubung ke {SERIAL_PORT}. Reset ESP32 sebentar...")
-    time.sleep(2) # Beri waktu ESP32 booting
-    print("Siap merekam! (Ctrl+C untuk stop)")
-except Exception as e:
-    print(f"Error koneksi: {e}")
-    exit()
-
-# Setup CSV
+# ================== CSV SCHEMA ==================
 fieldnames = [
-    'voltage', 'current', 'power', 'energy', 'frequency', 'pf', 
-    'voltage_alert', 'pf_alert', 'motor_temp', 'ambient_temp', 
-    'temp_alert', 'hotspot', 'bearing_temp', 'delta_temp', 
-    'dust', 'dust_alert', 'soiling_loss', 'vibration_rms_mm_s', 
-    'vibration_alert', 'unbalance', 'bearing_health'
+    # ELECTRICAL
+    'voltage',
+    'current',
+    'power',
+    'energy',
+    'frequency',
+    'pf',
+    'apparent_power',
+    'load_index',
+    'current_freq_ratio',
+
+    # TEMPERATURE
+    'motor_temp',
+    'ambient_temp',
+    'bearing_temp',
+    'delta_temp',
+    'temp_gradient',
+    'bearing_motor_diff',
+    'hotspot',
+
+    # DUST
+    'dust',
+    'soiling_loss',
+
+    # VIBRATION
+    'vibration_rms_mm_s',
+    'vibration_peak_g',
+    'crest_factor',
+    'unbalance',
+
+    # HEALTH
+    'bearing_health',
+    'health_index',
+
+    # TIME
+    'timestamp'
 ]
 
-# Cek apakah file sudah ada untuk menulis header
+# ================== SERIAL CONNECT ==================
 try:
-    with open(FILENAME, 'r') as f:
-        pass
-except FileNotFoundError:
-    with open(FILENAME, 'w', newline='') as f:
+    ser = serial.Serial(
+        SERIAL_PORT,
+        BAUD_RATE,
+        timeout=READ_TIMEOUT
+    )
+    time.sleep(2)
+    print(f"[OK] Connected to {SERIAL_PORT}")
+except Exception as e:
+    print(f"[FATAL] Serial error: {e}")
+    exit(1)
+
+# ================== CSV INIT ==================
+try:
+    with open(FILENAME, 'x', newline='') as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
+        print("[OK] CSV header created")
+except FileExistsError:
+    print("[OK] CSV file exists, appending")
 
-buffer_string = ""
+# ================== MAIN LOOP ==================
+with open(FILENAME, 'a', newline='') as f:
+    writer = csv.DictWriter(f, fieldnames=fieldnames)
 
-try:
-    while True:
-        if ser.in_waiting > 0:
-            # Baca data baru
+    try:
+        while True:
+            line = ser.readline().decode('utf-8', errors='ignore').strip()
+
+            if not line:
+                continue
+
+            # HARD FILTER: hanya proses JSON
+            if not line.startswith('{') or not line.endswith('}'):
+                continue
+
             try:
-                chunk = ser.read(ser.in_waiting).decode('utf-8', errors='ignore')
-                buffer_string += chunk
-                
-                # Debug: Tampilkan dot (.) setiap ada data masuk biar tau script jalan
-                print(".", end="", flush=True)
+                payload = json.loads(line)
 
-                # Cari paket JSON lengkap
-                while '{' in buffer_string and '}' in buffer_string:
-                    start_index = buffer_string.find('{')
-                    end_index = buffer_string.find('}', start_index) + 1
-                    
-                    # Jika format kurung lengkap
-                    if end_index > start_index:
-                        json_str = buffer_string[start_index:end_index]
-                        buffer_string = buffer_string[end_index:] # Hapus yg sudah diproses
-                        
-                        try:
-                            data = json.loads(json_str)
-                            
-                            # Simpan ke CSV
-                            with open(FILENAME, 'a', newline='') as f:
-                                writer = csv.DictWriter(f, fieldnames=fieldnames)
-                                writer.writerow(data)
-                            
-                            print(f"\n[OK] Data tersimpan! Voltage: {data.get('voltage', 0)} V")
-                            
-                        except json.JSONDecodeError:
-                            print("\n[SKIP] JSON rusak (wajar saat awal koneksi)")
-                    else:
-                        break # Tunggu data berikutnya
-            except Exception as e:
-                print(f"Error baca: {e}")
+                # Normalize row (schema lock)
+                row = {key: payload.get(key, None) for key in fieldnames}
+                writer.writerow(row)
+                f.flush()
 
-except KeyboardInterrupt:
-    print(f"\nLogging selesai. Data ada di {FILENAME}")
-    ser.close()
+                print(f"[LOGGED] ts={row['timestamp']} | V={row['voltage']}")
+
+            except json.JSONDecodeError:
+                # sengaja DIAM, karena ini noise dari device
+                continue
+
+    except KeyboardInterrupt:
+        print("\n[STOP] Logging terminated by user")
+
+    finally:
+        ser.close()

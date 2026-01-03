@@ -14,7 +14,7 @@ const navItems: NavItem[] = [
   { label: 'Dashboard', href: '/dashboard' },
   { label: 'Analytics', href: '/analytics' },
   { label: 'AI Center', href: '/ai-center' },
-  { label: 'Settings', href: '/settings' },
+  // { label: 'Settings', href: '/settings' }, // Hidden for now
 ];
 
 // TODO: In production, allow user to select motor
@@ -29,13 +29,8 @@ export function Navbar() {
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
-          <Link href="/dashboard" className="flex items-center">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-gradient-to-br from-white to-lightgray rounded-lg flex items-center justify-center">
-                <span className="text-primary font-bold text-lg">M</span>
-              </div>
-              <span className="text-xl font-bold text-white">Mechasense</span>
-            </div>
+          <Link href="/" className="flex items-center">
+            <span className="text-xl font-bold text-white">Mechasense</span>
           </Link>
           
           {/* Navigation Menu */}

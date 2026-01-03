@@ -1,107 +1,149 @@
 /**
  * POST /api/ml/predict
  * 
- * Placeholder endpoint for ML model prediction
- * In production, this would call a Python/TensorFlow model service
- * For now, returns dummy prediction based on latest sensor data
+ * Endpoint for ML predictions - calls Python ML service
+ * Also includes formula-based health score calculation
+ * 
+ * Data is received from client (Firebase) not from Prisma
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { calculateHealthScore } from '@/lib/calculateHealthScore';
+
+// ML Service URL
+const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:8001';
+
+interface VibrationReading {
+  vibration_rms: number;
+  timestamp?: number;
+}
+
+interface SensorData {
+  gridVoltage?: number;
+  motorCurrent?: number;
+  power?: number;
+  powerFactor?: number;
+  gridFrequency?: number;
+  vibrationRms?: number;
+  motorSurfaceTemp?: number;
+  bearingTemp?: number;
+  dustDensity?: number;
+}
+
+interface MLPredictionResponse {
+  classification: {
+    will_fail_soon: boolean;
+    failure_probability: number;
+    confidence: string;
+    threshold_minutes: number;
+  };
+  regression: {
+    minutes_to_failure: number;
+    hours_to_failure: number;
+    status: string;
+  };
+  timestamp: string;
+  readings_used: number;
+}
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { motorId } = body;
+    const { vibrationReadings, sensorData } = body as {
+      vibrationReadings?: VibrationReading[];
+      sensorData?: SensorData;
+    };
     
-    if (!motorId) {
-      return NextResponse.json(
-        { error: 'motorId is required' },
-        { status: 400 }
-      );
-    }
-    
-    // Get latest sensor reading
-    const latestReading = await prisma.sensorReading.findFirst({
-      where: { motorId },
-      orderBy: { timestamp: 'desc' },
+    // Calculate formula-based health score from sensor data
+    const healthResult = calculateHealthScore({
+      gridVoltage: sensorData?.gridVoltage,
+      motorCurrent: sensorData?.motorCurrent,
+      power: sensorData?.power,
+      powerFactor: sensorData?.powerFactor,
+      gridFrequency: sensorData?.gridFrequency,
+      vibrationRms: sensorData?.vibrationRms,
+      motorSurfaceTemp: sensorData?.motorSurfaceTemp,
+      bearingTemp: sensorData?.bearingTemp,
+      dustDensity: sensorData?.dustDensity,
     });
     
-    if (!latestReading) {
-      return NextResponse.json(
-        { error: 'No sensor data available for this motor' },
-        { status: 404 }
-      );
+    // Prepare vibration readings for ML service
+    const readings: VibrationReading[] = vibrationReadings || [];
+    
+    // Default ML response (if service unavailable or no readings)
+    let mlPrediction: MLPredictionResponse | null = null;
+    let mlServiceError: string | null = null;
+    
+    // Call Python ML service if we have readings
+    if (readings.length >= 1) {
+      try {
+        console.log(`Calling ML service at ${ML_SERVICE_URL}/predict/both with ${readings.length} readings`);
+        
+        const mlResponse = await fetch(`${ML_SERVICE_URL}/predict/both`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ readings }),
+          signal: AbortSignal.timeout(10000), // 10 second timeout
+        });
+        
+        if (mlResponse.ok) {
+          mlPrediction = await mlResponse.json();
+          console.log('ML prediction successful:', mlPrediction);
+        } else {
+          const errorData = await mlResponse.json().catch(() => ({}));
+          mlServiceError = errorData.detail || `ML service error: ${mlResponse.status}`;
+          console.error('ML service returned error:', mlServiceError);
+        }
+      } catch (error) {
+        console.error('Error calling ML service:', error);
+        mlServiceError = error instanceof Error ? error.message : 'ML service unavailable';
+      }
+    } else {
+      mlServiceError = 'Not enough vibration readings for ML prediction (need at least 1)';
     }
-    
-    // DUMMY ML PREDICTION LOGIC
-    // In production: send features to ML model API and get prediction
-    // For now: calculate simple score based on sensor values
-    
-    let healthScore = 100;
-    
-    // Deduct points based on parameter status
-    if (latestReading.vibrationRms > 4.5) healthScore -= 20;
-    else if (latestReading.vibrationRms > 2.8) healthScore -= 10;
-    
-    if (latestReading.motorSurfaceTemp > 85) healthScore -= 20;
-    else if (latestReading.motorSurfaceTemp > 70) healthScore -= 10;
-    
-    if (latestReading.bearingTemp > 85) healthScore -= 20;
-    else if (latestReading.bearingTemp > 70) healthScore -= 10;
-    
-    if (latestReading.motorCurrent > 5.5) healthScore -= 15;
-    else if (latestReading.motorCurrent > 4) healthScore -= 7;
-    
-    if (latestReading.powerFactor < 0.7) healthScore -= 15;
-    else if (latestReading.powerFactor < 0.85) healthScore -= 7;
-    
-    if (latestReading.dustDensity > 100) healthScore -= 10;
-    else if (latestReading.dustDensity > 50) healthScore -= 5;
-    
-    healthScore = Math.max(0, healthScore);
-    
-    // Determine category
-    let healthCategory = 'Healthy';
-    if (healthScore < 60) healthCategory = 'Critical';
-    else if (healthScore < 80) healthCategory = 'At Risk';
-    
-    // Top features affecting health (dummy)
-    const topFeatures = [];
-    if (latestReading.vibrationRms > 2.8) topFeatures.push('vibrationRms');
-    if (latestReading.motorSurfaceTemp > 70) topFeatures.push('motorSurfaceTemp');
-    if (latestReading.bearingTemp > 70) topFeatures.push('bearingTemp');
-    if (latestReading.powerFactor < 0.85) topFeatures.push('powerFactor');
-    if (latestReading.motorCurrent > 4) topFeatures.push('motorCurrent');
-    
-    // Save to database
-    const healthAnalysis = await prisma.healthAnalysis.create({
-      data: {
-        motorId,
-        healthScoreMl: healthScore,
-        healthCategory,
-        expertDiagnosis: null, // Will be filled by expert system
-        expertRecommendation: null,
-        rawRulesMatched: null,
-      },
-    });
     
     return NextResponse.json({
       success: true,
-      healthAnalysisId: healthAnalysis.id,
-      healthScore,
-      healthCategory,
-      topFeatures,
+      
+      // Formula-based health score
+      healthScore: {
+        score: healthResult.score,
+        category: healthResult.category,
+        factors: healthResult.factors,
+      },
+      
+      // ML predictions (if available)
+      mlPrediction: mlPrediction ? {
+        classification: {
+          willFailSoon: mlPrediction.classification.will_fail_soon,
+          failureProbability: mlPrediction.classification.failure_probability,
+          confidence: mlPrediction.classification.confidence,
+          thresholdMinutes: mlPrediction.classification.threshold_minutes,
+        },
+        regression: {
+          minutesToFailure: mlPrediction.regression.minutes_to_failure,
+          hoursToFailure: mlPrediction.regression.hours_to_failure,
+          status: mlPrediction.regression.status,
+        },
+        readingsUsed: mlPrediction.readings_used,
+      } : null,
+      
+      // ML service status
+      mlServiceStatus: mlPrediction ? 'available' : 'unavailable',
+      mlServiceError,
+      
       timestamp: new Date().toISOString(),
-      note: 'This is a placeholder ML prediction. In production, integrate with TensorFlow/PyTorch model.',
     });
     
   } catch (error) {
-    console.error('Error running ML prediction:', error);
+    console.error('Error running prediction:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { 
+        error: 'Internal server error', 
+        details: error instanceof Error ? error.message : 'Unknown error',
+        success: false,
+      },
       { status: 500 }
     );
   }
 }
-

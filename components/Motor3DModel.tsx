@@ -477,37 +477,37 @@ export function Motor3DModel(props: Motor3DModelProps) {
         <p className="font-semibold mb-1">Visual Diagnostics:</p>
         <ul className="list-disc list-inside space-y-1">
           {props.motorSurfaceTemp != null && props.motorSurfaceTemp > 85 && (
-            <li className="text-red-600 font-semibold">🔥 BURNING EFFECT ACTIVE → Motor temperature critical ({props.motorSurfaceTemp.toFixed(1)}°C) - Red color</li>
+            <li className="text-red-600 font-semibold">BURNING EFFECT ACTIVE - Motor temperature critical ({props.motorSurfaceTemp.toFixed(1)}°C) - Red color</li>
           )}
           {props.motorSurfaceTemp != null && getStatusColor(props.motorSurfaceTemp, 'motorSurfaceTemp').level === 'warning' && props.motorSurfaceTemp <= 85 && (
-            <li>🌡️ High temperature → Orange/red color</li>
+            <li>High temperature - Orange/red color</li>
           )}
           {props.motorSurfaceTemp != null && props.motorSurfaceTemp < 40 && (
-            <li className="text-blue-600 font-semibold">❄️ COLD EFFECT ACTIVE → Motor temperature low ({props.motorSurfaceTemp.toFixed(1)}°C) - Blue color</li>
+            <li className="text-blue-600 font-semibold">COLD EFFECT ACTIVE - Motor temperature low ({props.motorSurfaceTemp.toFixed(1)}°C) - Blue color</li>
           )}
           {props.motorSurfaceTemp != null && props.motorSurfaceTemp >= 40 && props.motorSurfaceTemp <= 70 && (
-            <li>🔵 Normal temperature → Industrial blue metallic color</li>
+            <li>Normal temperature - Industrial blue metallic color</li>
           )}
           {props.vibrationRms != null && getStatusColor(props.vibrationRms, 'vibrationRms').level !== 'normal' && (
-            <li>📳 High vibration → Motor shaking</li>
+            <li>High vibration - Motor shaking</li>
           )}
           {props.gridVoltage != null && getStatusColor(props.gridVoltage, 'gridVoltage').level !== 'normal' && (
-            <li>⚡ Voltage abnormal → Color change</li>
+            <li>Voltage abnormal - Color change</li>
           )}
           {props.motorCurrent != null && getStatusColor(props.motorCurrent, 'motorCurrent').level !== 'normal' && (
-            <li>💡 High current → Blue glow effect</li>
+            <li>High current - Blue glow effect</li>
           )}
           {props.powerFactor != null && props.powerFactor < 0.85 && (
-            <li>⚡ Low power factor → Flicker effect</li>
+            <li>Low power factor - Flicker effect</li>
           )}
           {props.gridFrequency != null && (props.gridFrequency < 49.5 || props.gridFrequency > 50.5) && (
-            <li>🐌 Abnormal frequency → Slow motion</li>
+            <li>Abnormal frequency - Slow motion</li>
           )}
           {props.dustDensity != null && getStatusColor(props.dustDensity, 'dustDensity').level !== 'normal' && (
-            <li>🌫️ High dust → Reduced opacity</li>
+            <li>High dust - Reduced opacity</li>
           )}
           {props.bearingTemp != null && getStatusColor(props.bearingTemp, 'bearingTemp').level !== 'normal' && (
-            <li>🔴 High bearing temp → Bearing highlighted</li>
+            <li>High bearing temp - Bearing highlighted</li>
           )}
         </ul>
       </div>
