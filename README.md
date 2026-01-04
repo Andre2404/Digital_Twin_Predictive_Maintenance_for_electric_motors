@@ -278,16 +278,27 @@ The ML service runs on `http://localhost:5001` by default.
 ## Contributors
 
 • Adzka Dzikri Imanullah	2301706
+
 • Andhika Pratama	2301647
+
 • Andre Saputra	2312601
+
 • Dewi Siti Jamilah	2300707
+
 • Faiz Lintang Prawira	2301910
+
 • Hafizh 'Abid Khalish	2304423
+
 • Khairunnisa Labibah	2307564
+
 • Muhammad Farid Febriansyah Prasetyo	2306825
+
 • Primanda Suryawan Gani Zuher	2301578
+
 • Rifki Destrizal Nugraha	2304034
+
 • Sabtina Arinda Inayah	2301906
+
 • Sunan Maulana Sulinda Dwika Darma	2312131
 
 Student of Mechatronics and Artificial Intelligence at University of Education Indonesia.
