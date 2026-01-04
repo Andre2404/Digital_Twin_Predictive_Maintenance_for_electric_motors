@@ -106,7 +106,6 @@ class TimeSeriesFeatureEngineer(BaseEstimator, TransformerMixin):
     def get_feature_names_out(self, input_features=None):
         return np.array(self.engineered_feature_names_)
 
-
 # ============================================================
 # PYDANTIC MODELS
 # ============================================================
@@ -143,7 +142,6 @@ class DualPredictionResponse(BaseModel):
     regression: RegressionResponse
     timestamp: str
     readings_used: int
-
 
 # ============================================================
 # HELPER FUNCTIONS
@@ -199,7 +197,6 @@ def get_failure_status(minutes: float) -> str:
         return "Warning"
     else:
         return "Normal"
-
 
 # ============================================================
 # FASTAPI APP
@@ -354,7 +351,6 @@ async def predict_both(request: PredictionRequest):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
-
 
 # ============================================================
 # MAIN
