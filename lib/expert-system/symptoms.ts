@@ -16,3 +16,4 @@ export const symptoms: Symptom[] = [
   { id: 9, question: "Capacitor is swollen", cfExpert: 0.9 },
   { id: 10, question: "Motor is weak despite normal voltage", cfExpert: 1.0 }
 ];
+
