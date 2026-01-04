@@ -311,4 +311,4 @@ This project is for educational purposes. Modify as needed for your use case.
 
 ---
 
-**Mechasense** - Predictive Maintenance for Electric Motor\_ 🔧⚡
+**Mechasense** - Predictive Maintenance for Electric Motor
