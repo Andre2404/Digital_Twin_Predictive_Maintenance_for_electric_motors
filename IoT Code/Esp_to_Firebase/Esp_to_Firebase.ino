@@ -56,6 +56,7 @@ const unsigned long interval = 2000;
 /* =======================
    CALIBRATION FUNCTIONS
    ======================= */
+
 void calibrateMPU6050() {
   Serial.println("Calibrating MPU6050...");
   long axSum = 0, aySum = 0, azSum = 0;
