@@ -1,8 +1,6 @@
+//fuzzy level
 export type FuzzyLevel = "No" | "Sometimes" | "Yes";
 
-/**
- * Mapping user input → CF value
- */
 export function fuzzyLevelToValue(level: FuzzyLevel): number {
   switch (level) {
     case "No":

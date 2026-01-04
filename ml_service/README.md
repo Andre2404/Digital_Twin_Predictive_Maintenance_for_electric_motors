@@ -30,5 +30,4 @@ Server akan berjalan di `http://localhost:8000`
   ]
 }
 ```
-
-Minimal 10 readings untuk hasil terbaik.
+Minimal 10 readings untuk hasil yang terbaik.

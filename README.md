@@ -6,7 +6,7 @@ Mechasense is a monitoring and predictive maintenance platform for AC motors tha
 
 ---
 
-## 🎯 Features
+## Features
 
 - **Real-time Dashboard**: Monitor 5 sensors (MLX90614, PZEM-004T, DS18B20, GP2Y1010, MPU6050) in real-time via Firebase
 - **ML Health Score & Bearing Prediction**: Machine Learning model for motor health scoring and bearing failure prediction
@@ -17,7 +17,7 @@ Mechasense is a monitoring and predictive maintenance platform for AC motors tha
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 - **Frontend**: React 18 + Next.js 14 (App Router)
 - **Language**: TypeScript
@@ -28,7 +28,7 @@ Mechasense is a monitoring and predictive maintenance platform for AC motors tha
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 mechasense/
@@ -77,7 +77,7 @@ mechasense/
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
@@ -91,7 +91,7 @@ mechasense/
 1. **Clone repository**
 
 ```bash
-git clone https://github.com/your-username/mechasense.git
+git clone https://github.com/seipaa/mechasense.git
 cd mechasense
 ```
 
@@ -127,7 +127,7 @@ Navigate to [http://localhost:3000/dashboard](http://localhost:3000/dashboard)
 
 ---
 
-## 🤖 AI Center Features
+## AI Center Features
 
 The AI Center (`/ai-center`) combines two diagnostic systems:
 
@@ -171,7 +171,7 @@ Interactive rule-based diagnosis system using:
 
 ---
 
-## 🔌 ESP32 Integration
+## ESP32 Integration
 
 ### Sending Data from ESP32
 
@@ -197,7 +197,7 @@ ESP32 sends sensor data via HTTP POST to Firebase or the `/api/ingest` endpoint.
 
 ---
 
-## 📊 Color Palette
+## Color Palette
 
 Mechasense uses the following color scheme:
 
@@ -212,7 +212,7 @@ Mechasense uses the following color scheme:
 
 ---
 
-## 📈 Threshold Configuration
+## Threshold Configuration
 
 The following thresholds determine sensor status:
 
@@ -231,7 +231,7 @@ Thresholds can be adjusted in `lib/thresholds.ts`.
 
 ---
 
-## 🐍 ML Service (Optional)
+## ML Service (Optional)
 
 To enable advanced ML predictions:
 
@@ -257,7 +257,7 @@ The ML service runs on `http://localhost:5001` by default.
 
 ---
 
-## 🔧 Development
+## Development
 
 ### Available Scripts
 
@@ -275,31 +275,40 @@ The ML service runs on `http://localhost:5001` by default.
 
 ---
 
-## 📝 Future Improvements
+## Contributors
 
-- [ ] Authentication & authorization
-- [ ] Multi-motor support with selector
-- [ ] WebSocket for true real-time updates
-- [ ] Export data to CSV/Excel
-- [ ] Email/SMS notifications for alerts
-- [ ] Mobile app (React Native)
-- [ ] Dashboard customization (drag-drop widgets)
-- [ ] Maintenance scheduling & tracking
-- [ ] Integration with SCADA systems
-- [ ] Predictive maintenance timeline
+• Adzka Dzikri Imanullah (2301706)
 
----
+• Andhika Pratama	(2301647)
 
-## 👥 Contributors
+• Andre Saputra	(2312601)
+
+• Dewi Siti Jamilah	(2300707)
+
+• Faiz Lintang Prawira	(2301910)
+
+• Hafizh 'Abid Khalish	(2304423)
+
+• Khairunnisa Labibah	(2307564)
+
+• Muhammad Farid Febriansyah Prasetyo	(2306825)
+
+• Primanda Suryawan Gani Zuher	(2301578)
+
+• Rifki Destrizal Nugraha	(2304034)
+
+• Sabtina Arinda Inayah	(2301906)
+
+• Sunan Maulana Sulinda Dwika Darma	(2312131)
 
 Student of Mechatronics and Artificial Intelligence at University of Education Indonesia.
 
 ---
 
-## 📄 License
+## License
 
-This project is for educational purposes. Modify as needed for your use case.
+This project is for educational purposes.
 
 ---
-
-**Mechasense** - Predictive Maintenance for Electric Motor\_ 🔧⚡
+ 
+**Mechasense** - Predictive Maintenance for Electric Motor 

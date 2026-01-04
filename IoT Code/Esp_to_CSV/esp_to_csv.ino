@@ -7,7 +7,7 @@
 #include <time.h>
 
 /* =======================
-   PZEM-004T
+       PZEM-004T
    ======================= */
 #define RXD2 16
 #define TXD2 17
@@ -15,20 +15,20 @@ HardwareSerial pzemSerial(2);
 PZEM004Tv30 pzem(pzemSerial, RXD2, TXD2);
 
 /* =======================
-   I2C Sensors
+        I2C Sensors
    ======================= */
 MPU6050 mpu;
 Adafruit_MLX90614 mlx;
 
 /* =======================
-   DS18B20
+        DS18B20
    ======================= */
 #define ONE_WIRE_BUS 14
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature ds18b20(&oneWire);
 
 /* =======================
-   GP2Y1010A0
+         GP2Y1010A0
    ======================= */
 #define DUST_PIN 34
 #define LED_PIN  4
@@ -41,7 +41,7 @@ const float SAMPLE_RATE = 1000.0;
 const float DT = 1.0 / SAMPLE_RATE;
 
 /* =======================
-   Dust Calibration
+      Dust Calibration
    ======================= */
 const float DUST_OFFSET_MG = 0.05;
 
@@ -85,7 +85,7 @@ void loop() {
   float loadIndex = constrain((current / 10.0f) * 100.0f, 0.0f, 100.0f);
   float currentFreqRatio = (freq > 0) ? current / freq : 0.0f;
 
-  /* ========= TEMPERATURE ========= */
+  /* ======== TEMPERATURE ======== */
   float ambientTemp = mlx.readAmbientTempC();
   float motorTemp   = mlx.readObjectTempC();
 
