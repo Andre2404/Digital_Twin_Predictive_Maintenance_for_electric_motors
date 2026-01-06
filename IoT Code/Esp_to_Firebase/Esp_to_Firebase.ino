@@ -9,13 +9,13 @@
 #include <FirebaseESP32.h>
 
 /* =======================
-       WIFI CONFIG
+   WIFI CONFIG
    ======================= */
-#define WIFI_SSID     " "
-#define WIFI_PASSWORD " "
+#define WIFI_SSID     "POCO X6 5G"
+#define WIFI_PASSWORD "miotmiot"
 
 /* =======================
-      FIREBASE CONFIG
+   FIREBASE CONFIG
    ======================= */
 // PASTIKAN: Tanpa "https://" dan tanpa "/" di akhir
 #define FIREBASE_HOST "test-mode-62bda-default-rtdb.firebaseio.com"
@@ -53,22 +53,30 @@ float axOffset = 0, ayOffset = 0, azOffset = 0;
 unsigned long lastMillis = 0;
 const unsigned long interval = 2000;
 
+// ===== VIBRATION RESULT =====
+float vib_rms_mm_s = 0;
+float vib_peak_g   = 0;
+String vib_status  = "UNKNOWN";
+float vib_crest_factor = 0;
+
+
 /* =======================
    CALIBRATION FUNCTIONS
    ======================= */
-
 void calibrateMPU6050() {
-  Serial.println("Calibrating MPU6050...");
+  Serial.println("Calibrating MPU6050... DO NOT MOVE SENSOR");
   long axSum = 0, aySum = 0, azSum = 0;
   for (int i = 0; i < 500; i++) {
     int16_t ax, ay, az;
     mpu.getAcceleration(&ax, &ay, &az);
-    axSum += ax; aySum += ay; azSum += az;
+    axSum += ax;
+    aySum += ay;
+    azSum += az;
     delay(5);
   }
   axOffset = axSum / 500.0f;
   ayOffset = aySum / 500.0f;
-  azOffset = (azSum / 500.0f) - 16384.0f;
+  azOffset = (azSum / 500.0f) - 16384.0f; // remove 1g
   Serial.println("MPU6050 Calibrated");
 }
 
@@ -124,6 +132,45 @@ void setup() {
   Firebase.reconnectWiFi(true);
 }
 
+void sensorMPU6050() {
+  float sumSq = 0;
+  float peak = 0;
+
+  for (int i = 0; i < SAMPLE_COUNT; i++) {
+    int16_t ax, ay, az;
+    mpu.getAcceleration(&ax, &ay, &az);
+
+    float x = (ax - axOffset) / 16384.0f;
+    float y = (ay - ayOffset) / 16384.0f;
+    float z = (az - azOffset) / 16384.0f;
+
+    float res = sqrt(x*x + y*y + z*z) - 1.0f;
+    res = abs(res);
+
+    sumSq += res * res;
+    if (res > peak) peak = res;
+
+    delayMicroseconds(1000);
+  }
+
+  float rms_g = sqrt(sumSq / SAMPLE_COUNT);
+
+  vib_rms_mm_s = rms_g * 9.81f * 1000.0f;
+  vib_peak_g   = peak;
+
+  if (vib_rms_mm_s < 1.8f) {
+    vib_status = "NORMAL";
+  }
+  else if (vib_rms_mm_s < 2.5f) {
+    vib_status = "WARNING";
+  }
+  else {
+    vib_status = "ALERT";
+  }
+  vib_crest_factor = (rms_g > 0) ? (peak / rms_g) : 0.0f;
+}
+
+
 /* =======================
    LOOP
    ======================= */
@@ -172,24 +219,11 @@ void loop() {
   float soilingLoss = min((dust / 300.0f) * 100.0f, 100.0f);
 
   // --- VIBRATION ---
-  float sumSq = 0, peak = 0;
-  for (int i = 0; i < SAMPLE_COUNT; i++) {
-    int16_t ax, ay, az;
-    mpu.getAcceleration(&ax, &ay, &az);
-    float x = (ax - axOffset) / 16384.0f;
-    float y = (ay - ayOffset) / 16384.0f;
-    float z = (az - azOffset) / 16384.0f;
-    float res = abs(sqrt(x*x + y*y + z*z) - 1.0f);
-    sumSq += res * res;
-    if (res > peak) peak = res;
-    delayMicroseconds(1000); 
-  }
+  sensorMPU6050();
 
-  float rms_g = sqrt(sumSq / SAMPLE_COUNT);
-  float rms_mm_s = rms_g * 9.81f * 1000.0f;
-  float crestFactor = (rms_g > 0) ? (peak / rms_g) : 0.0f;
-  float unbalance = min((rms_mm_s / 6.0f) * 100.0f, 100.0f);
+  float unbalance = min((vib_rms_mm_s / 6.0f) * 100.0f, 100.0f);
   float bearingHealth = 100.0f - unbalance;
+
 
   // --- HEALTH INDEX CALCULATION ---
   // Perbaikan max(float, float) dengan suffix 'f'
@@ -226,9 +260,10 @@ void loop() {
     json.set("dust", dust);
     json.set("soiling_loss", soilingLoss);
 
-    json.set("vibration_rms_mm_s", rms_mm_s);
-    json.set("vibration_peak_g", peak);
-    json.set("crest_factor", crestFactor);
+    json.set("vibration_rms_mm_s", vib_rms_mm_s);
+    json.set("vibration_peak_g", vib_peak_g);
+    json.set("vibration_status", vib_status);
+    json.set("crest_factor", vib_crest_factor);
     json.set("unbalance", unbalance);
 
     json.set("bearing_health", bearingHealth);
@@ -280,9 +315,9 @@ void loop() {
   Serial.printf("soiling_loss          : %.2f %%\n", soilingLoss);
 
   Serial.println("\n--- VIBRATION ---");
-  Serial.printf("vibration_rms_mm_s    : %.2f mm/s\n", rms_mm_s);
-  Serial.printf("vibration_peak_g      : %.4f g\n", peak);
-  Serial.printf("crest_factor          : %.2f\n", crestFactor);
+  Serial.printf("vibration_rms_mm_s    : %.2f mm/s\n", vib_rms_mm_s);
+  Serial.printf("vibration_peak_g      : %.4f g\n", vib_peak_g);
+  Serial.printf("crest_factor          : %.2f\n", vib_crest_factor);
   Serial.printf("unbalance             : %.2f %%\n", unbalance);
 
   Serial.println("\n--- HEALTH ---");
