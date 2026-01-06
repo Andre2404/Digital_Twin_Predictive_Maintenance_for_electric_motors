@@ -200,14 +200,14 @@ export function getStatusColor(value: number, parameterType: ParameterType): Sta
       }
     
     case 'vibrationRms':
-      if (value < 4500) {
+      if (value < 2.8) {
         return {
           level: 'normal',
           label: 'Normal',
           color: 'text-status-normal',
           bgColor: 'bg-status-normal'
         };
-      } else if (value >= 4500 && value <= 4700) {
+      } else if (value >= 2.8 && value <= 4.5) {
         return {
           level: 'warning',
           label: 'Warning',
