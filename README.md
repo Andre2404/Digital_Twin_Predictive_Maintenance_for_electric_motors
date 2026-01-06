@@ -7,6 +7,10 @@ The system monitors motor health continuously using multiple sensors, processes 
 
 This platform is designed to operate in industrial and laboratory environments, where the motor is controlled by a **PLC Omron CP2E** acting as an actuator, while **MQTT and Node-RED** serve as the communication backbone between edge devices, analytics services, and the web-based dashboard.
 
+<img width="1600" height="800" alt="image" src="https://github.com/Andre2404/Digital_Twin_Predictive_Maintenance_for_electric_motors/blob/main/public/3D%20visualization.PNG" />
+
+<img width="1200" height="735" alt="image" src="https://github.com/Andre2404/Digital_Twin_Predictive_Maintenance_for_electric_motors/blob/main/public/Dashboard.PNG" />
+
 ---
 
 ## System Overview
@@ -24,6 +28,8 @@ MechaSense addresses this problem by implementing:
 ---
 
 ## Sensor Configuration and Fault Detection Role
+
+<img width="1000" height="900" alt="image" src="https://github.com/Andre2404/Digital_Twin_Predictive_Maintenance_for_electric_motors/blob/main/public/wiring.jpeg?raw=true" />
 
 MechaSense utilizes **five complementary sensors**, each representing a different physical aspect of motor health. This multi-sensor approach enables robust fault detection and reduces false positives.
 
@@ -78,30 +84,7 @@ MechaSense utilizes **five complementary sensors**, each representing a differen
 
 ## System Architecture
 
-```
-
-[ Sensors & ESP32 ]
-|
-|  MQTT
-v
-[ Node-RED ]
-|
-|  Data Routing & Logic
-v
-[ Firebase Realtime Database ]
-|
-+-----------------------------+
-|                             |
-v                             v
-[ Next.js Dashboard ]        [ ML Service (Flask) ]
-|                             |
-|                             v
-|                    [ Prediction Results ]
-v
-[ PLC Omron CP2E ]
-(Actuator Control)
-
-```
+<img width="1000" height="900" alt="image" src="https://github.com/Andre2404/Digital_Twin_Predictive_Maintenance_for_electric_motors/blob/main/public/Alur.PNG" />
 
 ---
 
@@ -270,5 +253,6 @@ This project is developed as part of research and applied engineering work in th
 
 **Department of Mechatronics and Artificial Intelligence**
 University of Education Indonesia
+
 
 ```
