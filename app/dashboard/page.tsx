@@ -1,139 +1,61 @@
 'use client';
 
-import { MotorOverviewCard } from '@/components/MotorOverviewCard';
-import { RealtimeStatusBar } from '@/components/RealtimeStatusBar';
-import { useRealtimeSensorData } from '@/hooks/useRealtimeSensorData';
 import dynamic from 'next/dynamic';
+import { useRealtimeSensorData } from '@/hooks/useRealtimeSensorData';
+import { useAlertMqtt } from '@/hooks/useAlertMqtt';
+import { RealtimeStatusBar } from '@/components/RealtimeStatusBar';
+import { MotorOverviewCard } from '@/components/MotorOverviewCard';
 // import { Motor3DVisualization } from '@/components/Motor3DVisualization';
-import { AlertList } from '@/components/AlertList';
-import { DustPanel } from '@/components/DustPanel';
-import { ElectricalPanel } from '@/components/ElectricalPanel';
 import { SensorStatusCard } from '@/components/SensorStatusCard';
 import { TemperaturePanel } from '@/components/TemperaturePanel';
 import { VibrationPanel } from '@/components/VibrationPanel';
+import { DustPanel } from '@/components/DustPanel';
+import { AlertList } from '@/components/AlertList';
+import { PLCControlPanel } from '@/components/PLCControlPanel';
+import { ElectricalPanel } from '@/components/ElectricalPanel';
 import { type ParameterType } from '@/lib/thresholds';
 
 // Dynamic import untuk komponen 3D (hanya di client, no SSR)
-const Motor3DModel = dynamic(
-  () => import('@/components/Motor3DModel').then((mod) => ({ default: mod.Motor3DModel })),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="card p-6">
-        <div className="w-full h-[500px] bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg flex items-center justify-center">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-primary mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading 3D Model...</p>
-          </div>
+const Motor3DModel = dynamic(() => import('@/components/Motor3DModel').then(mod => ({ default: mod.Motor3DModel })), {
+  ssr: false,
+  loading: () => (
+    <div className="card p-6">
+      <div className="w-full h-[500px] bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-primary mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading 3D Model...</p>
         </div>
       </div>
-    ),
-  }
-);
+    </div>
+  ),
+});
+
 
 // TODO: In production, allow user to select motor
 const DEFAULT_MOTOR_ID = 'motor_1';
 
-/* =======================
-   SIMPLE ALERTS (LOCAL)
-   - alert muncul dari latestReading (tanpa run prediction)
-======================= */
-
-type AlertSeverity = 'low' | 'medium' | 'high';
-type AlertStatus = 'OPEN' | 'CLOSED' | 'ACKNOWLEDGED';
-
-type SimpleAlert = {
-  id: string;
-  severity: AlertSeverity;
-  status: AlertStatus;
-  message: string;
-  timestamp: number;
-  parameter: string;
-  value: number;
-};
-
-type ThresholdPair = { warn: number; crit: number };
-
-/**
- * Ubah angka threshold di sini sesuai kebutuhan kamu.
- * Satuan contoh:
- * - motorSurfaceTemp / bearingTemp: °C
- * - vibrationRms: mm/s
- * - dustDensity: ug/m3 (atau sesuai sensor kamu)
- */
-const SIMPLE_THRESHOLDS: Record<string, ThresholdPair> = {
-  motorSurfaceTemp: { warn: 37, crit: 44 },
-  bearingTemp: { warn: 36, crit: 43 },
-  vibrationRms: { warn: 4700, crit: 5000 },
-  dustDensity: { warn: 800, crit: 900 },
-};
-
-const PARAM_LABEL: Record<string, string> = {
-  motorSurfaceTemp: 'Suhu motor',
-  bearingTemp: 'Suhu bearing',
-  vibrationRms: 'Vibrasi RMS',
-  dustDensity: 'Debu',
-};
-
-function parseReadingTimestamp(ts: unknown): number {
-  if (typeof ts === 'number') return ts;
-  if (ts instanceof Date) return ts.getTime();
-  if (typeof ts === 'string') {
-    const t = new Date(ts).getTime();
-    return Number.isFinite(t) ? t : Date.now();
-  }
-  return Date.now();
-}
-
-function buildSimpleAlerts(latestReading: any): SimpleAlert[] {
-  const ts = parseReadingTimestamp(latestReading?.timestamp);
-  const alerts: SimpleAlert[] = [];
-
-  const pushIfBreached = (key: string) => {
-    const value = latestReading?.[key];
-    if (typeof value !== 'number' || Number.isNaN(value)) return;
-
-    const th = SIMPLE_THRESHOLDS[key];
-    if (!th) return;
-
-    const label = PARAM_LABEL[key] ?? key;
-
-    if (value >= th.crit) {
-      alerts.push({
-        id: `${key}-crit`,
-        severity: 'high',
-        status: 'OPEN',
-        parameter: key,
-        value,
-        message: `${label} kritikal: ${value.toFixed(2)}`,
-        timestamp: ts,
-      });
-      return;
-    }
-
-    if (value >= th.warn) {
-      alerts.push({
-        id: `${key}-warn`,
-        severity: 'medium',
-        status: 'OPEN',
-        parameter: key,
-        value,
-        message: `${label} tinggi: ${value.toFixed(2)} (>= ${th.warn})`,
-        timestamp: ts,
-      });
-    }
-  };
-
-  pushIfBreached('motorSurfaceTemp');
-  pushIfBreached('bearingTemp');
-  pushIfBreached('vibrationRms');
-  pushIfBreached('dustDensity');
-
-  return alerts;
-}
-
 export default function DashboardPage() {
   const { data, isLoading, error, isConnected } = useRealtimeSensorData(DEFAULT_MOTOR_ID);
+
+  // MQTT Alert Integration - automatically sends signals to PLC when critical conditions detected
+  const { mqttConnected, isMqttConnected, sendAlert, sendOff, reconnect, lastAlertInfo } = useAlertMqtt(
+    data?.latestReading ? {
+      gridVoltage: data.latestReading.gridVoltage,
+      motorCurrent: data.latestReading.motorCurrent,
+      powerFactor: data.latestReading.powerFactor,
+      gridFrequency: data.latestReading.gridFrequency,
+      motorSurfaceTemp: data.latestReading.motorSurfaceTemp,
+      bearingTemp: data.latestReading.bearingTemp,
+      vibrationRms: data.latestReading.vibrationRms,
+      dustDensity: data.latestReading.dustDensity,
+      healthIndex: data.latestReading.healthIndex,
+    } : null,
+    {
+      enabled: true,
+      alertCooldown: 30000, // 30 seconds between alerts
+      criticalHealthThreshold: 60, // Send alert when health < 60%
+    }
+  );
 
   if (isLoading) {
     return (
@@ -167,7 +89,7 @@ export default function DashboardPage() {
     );
   }
 
-  const { motor, latestReading, recentReadings, latestHealth } = data;
+  const { motor, latestReading, recentReadings, activeAlerts, latestHealth } = data;
 
   // Extract history for sparklines (ambil dari recentReadings, urutkan berdasarkan timestamp)
   const getHistory = (param: keyof typeof latestReading) => {
@@ -176,9 +98,7 @@ export default function DashboardPage() {
       const tsB = typeof b.timestamp === 'number' ? b.timestamp : new Date(b.timestamp).getTime();
       return tsA - tsB; // Oldest to newest
     });
-    return sortedReadings
-      .map((r) => r[param] as number)
-      .filter((v) => typeof v === 'number' && !isNaN(v));
+    return sortedReadings.map(r => r[param] as number).filter(v => typeof v === 'number' && !isNaN(v));
   };
 
   // Determine motor status based on health score
@@ -189,16 +109,17 @@ export default function DashboardPage() {
     return 'Kritikal';
   };
 
-  // ✅ Build alerts sederhana dari latestReading
-  const simpleAlerts = buildSimpleAlerts(latestReading);
-
   return (
     <div className="min-h-screen">
       {/* Status Bar */}
       <RealtimeStatusBar
-        lastUpdate={data?.latestReading?.timestamp ? data.latestReading.timestamp : null}
+        lastUpdate={
+          data?.latestReading?.timestamp
+            ? data.latestReading.timestamp // Pass timestamp langsung (bisa number atau Date)
+            : null
+        }
         isConnected={isConnected}
-        motorName={data?.motor?.name ?? 'Unknown Motor'}
+        motorName={data?.motor?.name ?? "Unknown Motor"}
       />
 
       {/* Dashboard Content */}
@@ -206,9 +127,16 @@ export default function DashboardPage() {
         {/* Motor Overview */}
         <div className="mb-6">
           <MotorOverviewCard
-            motorName={data?.motor?.name ?? 'Unknown Motor'}
-            healthScore={data?.latestReading?.healthIndex ?? data?.latestHealth?.healthScoreMl ?? 0}
-            status={getMotorStatus(data?.latestReading?.healthIndex ?? data?.latestHealth?.healthScoreMl)}
+            motorName={data?.motor?.name ?? "Unknown Motor"}
+            healthScore={
+              data?.latestReading?.healthIndex ??
+              data?.latestHealth?.healthScoreMl ??
+              0
+            }
+            status={getMotorStatus(
+              data?.latestReading?.healthIndex ??
+              data?.latestHealth?.healthScoreMl
+            )}
             operatingHoursToday={data?.operatingHoursToday ?? 0} // Real-time dari Firebase
             dailyEnergy={data?.dailyEnergyKwh ?? 0} // Real-time dihitung dari V × I × PF
           />
@@ -226,36 +154,58 @@ export default function DashboardPage() {
             powerFactor={data?.latestReading?.powerFactor ?? 1}
             gridFrequency={data?.latestReading?.gridFrequency ?? 50}
             dustDensity={data?.latestReading?.dustDensity ?? 0}
-            healthScore={data?.latestReading?.healthIndex ?? data?.latestHealth?.healthScoreMl ?? 100}
+            healthScore={
+              data?.latestReading?.healthIndex ??
+              data?.latestHealth?.healthScoreMl ??
+              100
+            }
           />
         </div>
 
+        {/* Motor 2D SVG Visualization (Fallback) */}
+        {/* <div className="mb-6">
+          <Motor3DVisualization
+            gridFrequency={data?.latestReading?.gridFrequency ?? 50}
+            motorCurrent={data?.latestReading?.motorCurrent ?? 0}
+            motorSurfaceTemp={data?.latestReading?.motorSurfaceTemp ?? 25}
+            vibrationRms={data?.latestReading?.vibrationRms ?? 0}
+            power={data?.latestReading?.power ?? 0}
+            healthScore={
+              data?.latestReading?.healthIndex ?? 
+              data?.latestHealth?.healthScoreMl ?? 
+              100
+            }
+          />
+        </div> */}
+
         {/* Sensor Status Cards */}
         <div className="mb-6">
-          <h2 className="text-xl font-bold text-gray-800 mb-4">Electrical Parameters</h2>
+          <h2 className="text-xl font-bold text-gray-800 mb-4">
+            Electrical Parameters
+          </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <SensorStatusCard
-              parameter={'gridVoltage' as ParameterType}
+              parameter={"gridVoltage" as ParameterType}
               value={data?.latestReading?.gridVoltage ?? 0}
-              history={getHistory('gridVoltage')}
+              history={getHistory("gridVoltage")}
             />
 
             <SensorStatusCard
-              parameter={'motorCurrent' as ParameterType}
+              parameter={"motorCurrent" as ParameterType}
               value={data?.latestReading?.motorCurrent ?? 0}
-              history={getHistory('motorCurrent')}
+              history={getHistory("motorCurrent")}
             />
 
             <SensorStatusCard
-              parameter={'vibrationRms' as ParameterType}
+              parameter={"vibrationRms" as ParameterType}
               value={data?.latestReading?.vibrationRms ?? 0}
-              history={getHistory('vibrationRms')}
+              history={getHistory("vibrationRms")}
             />
 
             <SensorStatusCard
-              parameter={'motorSurfaceTemp' as ParameterType}
+              parameter={"motorSurfaceTemp" as ParameterType}
               value={data?.latestReading?.motorSurfaceTemp ?? 0}
-              history={getHistory('motorSurfaceTemp')}
+              history={getHistory("motorSurfaceTemp")}
             />
           </div>
 
@@ -263,33 +213,33 @@ export default function DashboardPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
             {data?.latestReading?.powerFactor !== undefined && (
               <SensorStatusCard
-                parameter={'powerFactor' as ParameterType}
+                parameter={"powerFactor" as ParameterType}
                 value={data.latestReading.powerFactor}
-                history={getHistory('powerFactor')}
+                history={getHistory("powerFactor")}
               />
             )}
 
             {data?.latestReading?.gridFrequency !== undefined && (
               <SensorStatusCard
-                parameter={'gridFrequency' as ParameterType}
+                parameter={"gridFrequency" as ParameterType}
                 value={data.latestReading.gridFrequency}
-                history={getHistory('gridFrequency')}
+                history={getHistory("gridFrequency")}
               />
             )}
 
             {data?.latestReading?.bearingTemp !== undefined && (
               <SensorStatusCard
-                parameter={'bearingTemp' as ParameterType}
+                parameter={"bearingTemp" as ParameterType}
                 value={data.latestReading.bearingTemp}
-                history={getHistory('bearingTemp')}
+                history={getHistory("bearingTemp")}
               />
             )}
 
             {data?.latestReading?.dustDensity !== undefined && (
               <SensorStatusCard
-                parameter={'dustDensity' as ParameterType}
+                parameter={"dustDensity" as ParameterType}
                 value={data.latestReading.dustDensity}
-                history={getHistory('dustDensity')}
+                history={getHistory("dustDensity")}
               />
             )}
           </div>
@@ -297,7 +247,9 @@ export default function DashboardPage() {
 
         {/* Power Analysis */}
         <div className="mb-6">
-          <h2 className="text-xl font-bold text-gray-800 mb-4">Power Analysis</h2>
+          <h2 className="text-xl font-bold text-gray-800 mb-4">
+            Power Analysis
+          </h2>
           <ElectricalPanel
             power={data?.latestReading?.power ?? 0}
             apparentPower={data?.latestReading?.apparentPower ?? 0}
@@ -309,7 +261,9 @@ export default function DashboardPage() {
 
         {/* Temperature & Vibration & Dust */}
         <div className="mb-6">
-          <h2 className="text-xl font-bold text-gray-800 mb-4">Physical Sensors</h2>
+          <h2 className="text-xl font-bold text-gray-800 mb-4">
+            Physical Sensors
+          </h2>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <TemperaturePanel
               motorSurfaceTemp={data?.latestReading?.motorSurfaceTemp ?? 0}
@@ -324,7 +278,9 @@ export default function DashboardPage() {
             <VibrationPanel
               vibrationRms={data?.latestReading?.vibrationRms ?? 0}
               faultFrequency={data?.latestReading?.faultFrequency}
-              rotorUnbalanceScore={data?.latestReading?.rotorUnbalanceScore ?? 0}
+              rotorUnbalanceScore={
+                data?.latestReading?.rotorUnbalanceScore ?? 0
+              }
               bearingHealthScore={data?.latestReading?.bearingHealthScore ?? 0}
               vibrationPeakG={data?.latestReading?.vibrationPeakG}
               crestFactor={data?.latestReading?.crestFactor}
@@ -337,21 +293,35 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Alerts (SIMPLE) */}
+        {/* Alerts */}
         <div className="mb-6">
-          <AlertList
-            alerts={simpleAlerts.map((a) => ({
-              id: a.id,
-              severity: a.severity,
-              message: a.message,
-              status: a.status,
-              timestamp: a.timestamp,
-              parameter: a.parameter,
-              value: a.value,
-            }))}
+          <AlertList alerts={activeAlerts.map(alert => ({
+            id: alert.id || `alert-${Date.now()}`,
+            severity: (alert.severity === 'low' || alert.severity === 'medium' || alert.severity === 'high')
+              ? alert.severity
+              : 'medium' as "low" | "medium" | "high",
+            message: alert.message,
+            status: (alert.status === 'OPEN' || alert.status === 'CLOSED' || alert.status === 'ACKNOWLEDGED')
+              ? alert.status
+              : 'OPEN' as "OPEN" | "CLOSED" | "ACKNOWLEDGED",
+            timestamp: alert.timestamp,
+            parameter: alert.parameter,
+            value: alert.value,
+          }))} />
+        </div>
+
+        {/* PLC Control Panel */}
+        <div className="mb-6">
+          <PLCControlPanel
+            mqttConnected={mqttConnected}
+            onSendAlert={sendAlert}
+            onSendOff={sendOff}
+            onReconnect={reconnect}
+            lastAlertInfo={lastAlertInfo}
           />
         </div>
       </div>
     </div>
   );
 }
+
