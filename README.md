@@ -13,6 +13,13 @@ This platform is designed to operate in industrial and laboratory environments, 
 
 ---
 
+## Demo Project
+
+Video Demo :
+https://youtu.be/BjRDWnmDT9M
+
+Web Preview : https://mechasenses-tw2u.vercel.app/
+
 ## System Overview
 
 In conventional maintenance strategies, electric motors are often serviced either **after failure** (corrective maintenance) or based on **fixed schedules** (preventive maintenance). Both approaches are inefficient and may lead to unnecessary downtime or unexpected breakdowns.
@@ -256,3 +263,4 @@ University of Education Indonesia
 
 
 ```
+
