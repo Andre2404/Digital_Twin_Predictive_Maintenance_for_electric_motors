@@ -230,27 +230,94 @@ Thresholds are configurable in `lib/thresholds.ts` and follow industrial standar
 
 ## Installation & Setup
 
-### Requirements
+### Prerequisites
 
-* Node.js 18+
-* Python 3.8+ (optional)
-* Firebase Realtime Database
-* MQTT Broker
+- Node.js 18+
+- npm or yarn
+- Python 3.8+ (optional, for ML service)
+- Firebase project with Realtime Database
 
-### Run Frontend
+### Installation
+
+1. **Clone repository**
+
+```bash
+git clone https://github.com/seipaa/mechasense.git
+cd mechasense
+```
+
+2. **Install dependencies**
 
 ```bash
 npm install
+```
+
+3. **Setup Firebase**
+
+Create a `.env.local` file with your Firebase configuration:
+
+```env
+NEXT_PUBLIC_FIREBASE_API_KEY=your_api_key
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
+NEXT_PUBLIC_FIREBASE_DATABASE_URL=https://your_project.firebaseio.com
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your_project.appspot.com
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
+NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id
+```
+
+4. **Run development server**
+
+```bash
 npm run dev
 ```
 
-### Run ML Service (Optional)
+5. **Open browser**
+
+Navigate to [http://localhost:3000/dashboard](http://localhost:3000/dashboard)
+
+---
+## ML Service (Optional)
+
+To enable advanced ML predictions:
+
+1. **Navigate to ML service directory**
 
 ```bash
 cd ml_service
+```
+
+2. **Install Python dependencies**
+
+```bash
 pip install -r requirements.txt
+```
+
+3. **Run the ML service**
+
+```bash
 python app.py
 ```
+
+The ML service runs on `http://localhost:5001` by default.
+
+---
+
+## Development
+
+### Available Scripts
+
+- `npm run dev` - Start development server
+- `npm run build` - Build for production
+- `npm run start` - Start production server
+- `npm run lint` - Run ESLint
+
+### Adding New Sensors
+
+1. Update Firebase data structure
+2. Update threshold logic (`lib/thresholds.ts`)
+3. Create/update UI components
+4. Update health score calculation if needed
 
 ---
 
@@ -263,4 +330,5 @@ University of Education Indonesia
 
 
 ```
+
 
